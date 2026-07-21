@@ -1,0 +1,78 @@
+# Cut a release: bump SHORT_VERSION in common.sh, then push a matching tag:
+#   git tag v0.1 && git push origin v0.1
+#
+# Required repository secrets:
+#   MACOS_CERT_P12       base64 of your "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD  the .p12 export password
+#   APPLE_ID             Apple ID email used for notarization
+#   APPLE_TEAM_ID        your 10-character team ID
+#   APPLE_APP_PASSWORD   app-specific password (appleid.apple.com)
+#   TAP_PAT              PAT with contents:write on homebrew-tokenration
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write        # create the GitHub release on this repo
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout TokenRation
+        uses: actions/checkout@v4
+
+      - name: Checkout Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: MilosRandelovic/homebrew-tokenration
+          path: homebrew-tokenration
+          token: ${{ secrets.TAP_PAT }}
+
+      - name: Verify version matches tag
+        run: |
+          source common.sh
+          if [ "v$SHORT_VERSION" != "${{ github.ref_name }}" ]; then
+            echo "::error::Tag ${{ github.ref_name }} != v$SHORT_VERSION from common.sh. Bump common.sh first."
+            exit 1
+          fi
+
+      # Gate signing and notarization on a green suite — a bad build shouldn't reach users.
+      - name: Test
+        run: swift test
+
+      - name: Import Developer ID certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.MACOS_CERT_P12 }}
+          p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
+      - name: Build, notarize, update cask
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          TAP_CASK: homebrew-tokenration/Casks/tokenration.rb
+        run: bash release.sh
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          files: TokenRation.zip
+          generate_release_notes: true
+
+      - name: Push cask update to the tap
+        working-directory: homebrew-tokenration
+        run: |
+          if git diff --quiet; then
+            echo "Cask already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "tokenration ${{ github.ref_name }}"
+          git push
