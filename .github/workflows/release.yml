@@ -1,0 +1,117 @@
+name: Release
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      HAS_SIGNING_CERT: ${{ secrets.MACOS_CERT_P12 != '' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+    - name: Checkout TokenRation
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Checkout Homebrew tap
+      uses: actions/checkout@v7
+      with:
+        repository: MilosRandelovic/homebrew-tokenration
+        path: homebrew-tokenration
+        token: ${{ secrets.HOMEBREW_TOKENRATION_PAT }}
+
+    - name: Extract version
+      id: version
+      run: |
+        VERSION=$(sed -n 's/^SHORT_VERSION="\(.*\)"$/\1/p' scripts/common.sh)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+        echo "Detected version: $VERSION"
+
+    - name: Configure git
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+    - name: Validate version
+      run: |
+        if git show-ref --verify --quiet "refs/tags/${{ steps.version.outputs.tag }}"; then
+          echo "::error::Tag ${{ steps.version.outputs.tag }} already exists. Bump SHORT_VERSION in scripts/common.sh to publish a new version."
+          exit 1
+        fi
+        echo "Tag ${{ steps.version.outputs.tag }} is available."
+
+    - name: Run tests
+      run: make test
+
+    - name: Get previous tag for release notes
+      id: previous_tag
+      run: |
+        git fetch --tags --prune-tags
+        PREVIOUS_TAG=$(git tag -l --sort=-version:refname | head -n1 || echo "")
+        echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        PREVIOUS_TAG="${{ steps.previous_tag.outputs.previous_tag }}"
+        NOTES_FILE="$RUNNER_TEMP/release-notes.md"
+        if [ -n "$PREVIOUS_TAG" ]; then
+          git log --no-merges --pretty=format:"- %s %h" "${PREVIOUS_TAG}..HEAD" > "$NOTES_FILE"
+        else
+          git log --no-merges --pretty=format:"- %s %h" -50 > "$NOTES_FILE"
+        fi
+        echo "notes_file=$NOTES_FILE" >> $GITHUB_OUTPUT
+
+    - name: Import Developer ID certificate
+      if: env.HAS_SIGNING_CERT == 'true'
+      uses: apple-actions/import-codesign-certs@v7
+      with:
+        p12-file-base64: ${{ secrets.MACOS_CERT_P12 }}
+        p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
+
+    - name: Build release archive and update cask
+      run: make release
+      env:
+        NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+        NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        NOTARY_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        TAP_CASK: homebrew-tokenration/Casks/tokenration.rb
+        ALLOW_UNSIGNED: ${{ secrets.MACOS_CERT_P12 == '' && '1' || '0' }}
+
+    - name: Create and push tag
+      run: |
+        git tag "${{ steps.version.outputs.tag }}"
+        git push origin "${{ steps.version.outputs.tag }}"
+
+    - name: Create GitHub Release
+      run: gh release create "$RELEASE_TAG" TokenRation.zip --title "Release $RELEASE_TAG" --notes-file "$RELEASE_NOTES_FILE"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        RELEASE_NOTES_FILE: ${{ steps.release_notes.outputs.notes_file }}
+
+    - name: Create Pull Request for cask update
+      uses: peter-evans/create-pull-request@v8
+      with:
+        token: ${{ secrets.HOMEBREW_TOKENRATION_PAT }}
+        path: homebrew-tokenration
+        commit-message: "Update Homebrew cask for release ${{ steps.version.outputs.tag }}"
+        title: "Update Homebrew cask for release ${{ steps.version.outputs.tag }}"
+        body: |
+          Automated update of the Homebrew cask for release ${{ steps.version.outputs.tag }}.
+
+          Changes:
+          - Updated version to ${{ steps.version.outputs.version }}
+          - Updated SHA256 hash
+
+          This PR was automatically created by the release workflow.
+        branch: release/update_cask_${{ steps.version.outputs.tag }}
+        delete-branch: true
