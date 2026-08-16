@@ -137,6 +137,11 @@ struct CodexUsageProvider: UsageProviding {
 /// Here a watchdog fires independently of any output, and every exit path terminates and reaps
 /// the child exactly once.
 private final class CodexExchange: @unchecked Sendable {
+  /// Writing to a child that has already exited raises SIGPIPE, which terminates this process
+  /// by default instead of returning an error. Ignoring it once turns a dead `codex app-server`
+  /// into a failed write that the timeout and EOF paths already handle.
+  private static let ignoreBrokenPipes: Void = { signal(SIGPIPE, SIG_IGN) }()
+
   private let lock = NSLock()
   private let process = Process()
   private let input = Pipe()
@@ -147,6 +152,7 @@ private final class CodexExchange: @unchecked Sendable {
   private var isFinished = false
 
   init(binary: String) {
+    _ = Self.ignoreBrokenPipes
     process.executableURL = URL(fileURLWithPath: binary)
     process.arguments = ["app-server"]
     process.standardInput = input
