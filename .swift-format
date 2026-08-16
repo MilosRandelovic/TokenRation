@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "lineLength": 140,
+  "maximumBlankLines": 1,
+  "respectsExistingLineBreaks": false,
+  "lineBreakBeforeControlFlowKeywords": false,
+  "lineBreakBeforeEachArgument": false,
+  "indentConditionalCompilationBlocks": false,
+  "rules": {
+    "AlwaysUseLowerCamelCase": true,
+    "AmbiguousTrailingClosureOverload": true,
+    "NoBlockComments": true,
+    "NoLeadingUnderscores": false,
+    "OrderedImports": true,
+    "UseLetInEveryBoundCaseVariable": false,
+    "UseShorthandTypeNames": true,
+    "UseSynthesizedInitializer": false,
+    "ValidateDocumentationComments": true
+  }
+}
