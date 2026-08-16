@@ -22,10 +22,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout TokenRation
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Checkout Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: MilosRandelovic/homebrew-tokenration
           path: homebrew-tokenration
@@ -44,7 +44,7 @@ jobs:
         run: swift test
 
       - name: Import Developer ID certificate
-        uses: apple-actions/import-codesign-certs@v3
+        uses: apple-actions/import-codesign-certs@v7
         with:
           p12-file-base64: ${{ secrets.MACOS_CERT_P12 }}
           p12-password: ${{ secrets.MACOS_CERT_PASSWORD }}
@@ -58,7 +58,7 @@ jobs:
         run: bash release.sh
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
