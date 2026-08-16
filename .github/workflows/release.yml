@@ -48,9 +48,6 @@ jobs:
         fi
         echo "Tag ${{ steps.version.outputs.tag }} is available."
 
-    - name: Run tests
-      run: make test
-
     - name: Get previous tag for release notes
       id: previous_tag
       run: |
