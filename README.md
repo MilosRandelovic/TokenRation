@@ -10,8 +10,11 @@ Requires macOS 14+ and at least one of the Claude Code or Codex CLIs, signed in.
 
 ```sh
 brew tap MilosRandelovic/tokenration
+brew trust MilosRandelovic/tokenration
 brew install tokenration
 ```
+
+Homebrew only loads casks from taps you have trusted, so the middle step is required once.
 
 On first launch, click **Always Allow** on the one-time Keychain prompt — that lets TokenRation read the access token the Claude Code CLI saved there. There's no separate sign-in.
 
