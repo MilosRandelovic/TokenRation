@@ -11,7 +11,19 @@ import UsageState
 
 /// Reported to clients on `initialize`. Read from the bundle the binary ships inside, so it
 /// tracks the app's version instead of being a literal that has to be remembered each release.
-let serverVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+///
+/// `Bundle.main` is resolved from the path used to launch the process, and the cask puts this
+/// binary on `PATH` as a symlink into the app — so launched that way it would look for an
+/// `Info.plist` next to the symlink and find none. Resolving the link first lands inside
+/// `TokenRation.app/Contents/MacOS`, whose bundle is three levels up.
+let serverVersion: String = {
+  let key = "CFBundleShortVersionString"
+  if let executable = Bundle.main.executableURL?.resolvingSymlinksInPath() {
+    let bundleURL = executable.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    if let bundle = Bundle(url: bundleURL), let version = bundle.object(forInfoDictionaryKey: key) as? String { return version }
+  }
+  return Bundle.main.object(forInfoDictionaryKey: key) as? String ?? "0.0.0"
+}()
 
 // MARK: - JSON-RPC plumbing
 
