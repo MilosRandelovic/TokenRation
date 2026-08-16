@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1]
+## [0.1.0]
 
 - Initial release: native macOS menu-bar app showing **Claude and Codex** usage — session and
   weekly windows, per-model limits (e.g. Fable, Codex-Spark), and spend/credits.
