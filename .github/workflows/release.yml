@@ -89,7 +89,7 @@ jobs:
         git push origin "${{ steps.version.outputs.tag }}"
 
     - name: Create GitHub Release
-      run: gh release create "$RELEASE_TAG" TokenRation.zip --title "Release $RELEASE_TAG" --notes-file "$RELEASE_NOTES_FILE"
+      run: gh release create "$RELEASE_TAG" TokenRation.zip --title "$RELEASE_TAG" --notes-file "$RELEASE_NOTES_FILE"
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         RELEASE_TAG: ${{ steps.version.outputs.tag }}

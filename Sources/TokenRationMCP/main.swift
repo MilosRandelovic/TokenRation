@@ -9,6 +9,10 @@ import UsageState
 /// TokenRation app writes after each of its own (rate-limit-disciplined) polls. Freshness is
 /// reported rather than chased, so callers can decide whether the reading is good enough.
 
+/// Reported to clients on `initialize`. Read from the bundle the binary ships inside, so it
+/// tracks the app's version instead of being a literal that has to be remembered each release.
+let serverVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+
 // MARK: - JSON-RPC plumbing
 
 /// Minimal dynamic JSON so we can echo arbitrary client values without modelling them.
@@ -206,7 +210,7 @@ while let line = readLine(strippingNewline: true) {
       id: id,
       result: [
         "protocolVersion": version, "capabilities": ["tools": [:] as [String: Any]],
-        "serverInfo": ["name": "tokenration", "version": "0.1"],
+        "serverInfo": ["name": "tokenration", "version": serverVersion],
       ])
 
   case "tools/list":
