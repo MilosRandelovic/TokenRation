@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1]
+
+- A rejected access token is retried within a few minutes, so one the CLI rotates mid-session is
+  picked up promptly instead of parking usage readings for a quarter of an hour. A token that stays
+  rejected still settles onto the long interval, since only signing in again will fix it.
+- Missing credentials and a rejected token are reported separately, in both the panel and the log.
+
 ## [0.1.0]
 
 - Initial release: native macOS menu-bar app showing **Claude and Codex** usage — session and
