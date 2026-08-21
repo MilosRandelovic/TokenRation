@@ -35,8 +35,12 @@ import Observation
   /// Minimum wait after a 429, even if the server suggests sooner: 15m, 30m … capped at 2h.
   private static let rateLimitFloor: TimeInterval = 15 * 60
   private static let maxRateLimitWait: TimeInterval = 2 * 60 * 60
-  /// Not signed in / expired needs user action, so check back rarely.
+  /// No stored credentials needs user action, so check back rarely.
   private static let authRetryInterval: TimeInterval = 15 * 60
+  /// A rejected token is usually one the CLI has just rotated, with the replacement already in
+  /// the Keychain — so the first rejection is retried soon after. Kept above `minimumGap`, or the
+  /// retry would be skipped rather than attempted.
+  private static let rejectedTokenRetry: TimeInterval = 150
   /// While offline we don't attempt at all; reconnecting triggers a refresh.
   private static let offlineRetryInterval: TimeInterval = 5 * 60
   /// Default cadence between successful polls; published in the state file so readers can
@@ -214,13 +218,23 @@ import Observation
         "HTTP 429 (retry-after \(retryAfter.map { String(Int($0)) } ?? "none"), "
           + "failures \(consecutiveFailures)) — holding off \(Int(wait))s")
       return wait
-    } catch UsageError.notSignedIn, UsageError.sessionExpired {
+    } catch UsageError.sessionExpired {
       consecutiveFailures += 1
       setRateLimited(until: nil)
       lastError = UsageError.sessionExpired.errorDescription
+      // A first rejection is treated as a token the CLI has just rotated, so it is retried soon.
+      // One that repeats means the credentials really are stale and only a sign-in fixes it.
+      let wait = jittered(consecutiveFailures == 1 ? Self.rejectedTokenRetry : Self.authRetryInterval)
+      holdOff(wait)
+      log("token rejected (failures \(consecutiveFailures)) — retrying in \(Int(wait))s")
+      return wait
+    } catch UsageError.notSignedIn {
+      consecutiveFailures += 1
+      setRateLimited(until: nil)
+      lastError = UsageError.notSignedIn.errorDescription
       let wait = jittered(Self.authRetryInterval)
       holdOff(wait)
-      log("auth failure — retrying in \(Int(wait))s")
+      log("no stored credentials — retrying in \(Int(wait))s")
       return wait
     } catch {
       consecutiveFailures += 1

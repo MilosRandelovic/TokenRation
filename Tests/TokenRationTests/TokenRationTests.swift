@@ -137,17 +137,36 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   /// is lost when the loop restarts, falling back to the 120s minimum gap.
   func testAuthBackoffSurvivesStopStart() async {
     let defaults = makeDefaults()
-    let provider = StubProvider(provider: .codex) { throw UsageError.sessionExpired }
+    let provider = StubProvider(provider: .codex) { throw UsageError.notSignedIn }
     let model = UsageModel(provider: provider, defaults: defaults)
 
     let first = await model.refresh(trigger: "test")
-    XCTAssertGreaterThan(first, 10 * 60, "auth failures should hold off ~15 minutes")
+    XCTAssertGreaterThan(first, 10 * 60, "missing credentials should hold off ~15 minutes")
 
     // Simulate stop/start: the very next attempt must be refused, not retried.
     model.stop()
     model.start()
     let second = await model.refresh(trigger: "after-restart")
     XCTAssertGreaterThan(second, 10 * 60, "restarting the loop must not discard the auth backoff")
+  }
+
+  /// A rejected token is usually one the CLI has just rotated, so the first rejection must come
+  /// back quickly rather than parking the provider for a quarter of an hour. A rejection that
+  /// repeats does need a sign-in, so it must then settle onto the long interval.
+  func testRejectedTokenRetriesSoonThenSettles() async {
+    let defaults = makeDefaults()
+    let provider = StubProvider(provider: .codex) { throw UsageError.sessionExpired }
+
+    let first = await UsageModel(provider: provider, defaults: defaults).refresh(trigger: "test")
+    XCTAssertGreaterThan(first, 120, "must exceed the minimum gap, or the retry is skipped instead of attempted")
+    XCTAssertLessThan(first, 5 * 60, "a rotated token should be picked up within minutes")
+
+    // Let the first deadline lapse. A fresh model is what a relaunch looks like, and it restores
+    // the stored failure count, so this stands in for the second consecutive rejection.
+    defaults.set(Date().addingTimeInterval(-1), forKey: "nextAttemptAt.codex")
+    defaults.set(Date().addingTimeInterval(-10 * 60), forKey: "lastAttemptAt.codex")
+    let second = await UsageModel(provider: provider, defaults: defaults).refresh(trigger: "retry")
+    XCTAssertGreaterThan(second, 10 * 60, "a token that stays rejected needs a sign-in, so stop retrying quickly")
   }
 
   /// The same, across a relaunch: a fresh model reading the same defaults must still hold off.
