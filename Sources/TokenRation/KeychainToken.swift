@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// Reads the Claude Code OAuth access token from the login Keychain by invoking
@@ -31,6 +32,12 @@ enum KeychainToken {
       let jsonData = text.data(using: .utf8), let blob = try? JSONDecoder().decode(CredentialsBlob.self, from: jsonData)
     else { throw UsageError.notSignedIn }
     return blob.claudeAiOauth.accessToken
+  }
+
+  /// A short digest of the current token: enough to tell that it changed, not enough to use.
+  static func fingerprint(service: String) throws -> String {
+    let token = try read(service: service)
+    return SHA256.hash(data: Data(token.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
   }
 
   /// The stored secret is a JSON blob: { "claudeAiOauth": { "accessToken": "..." } }

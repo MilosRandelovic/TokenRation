@@ -9,6 +9,8 @@ struct ClaudeUsageProvider: UsageProviding {
   var endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
   var keychainService = "Claude Code-credentials"
 
+  func credentialFingerprint() async -> String? { try? KeychainToken.fingerprint(service: keychainService) }
+
   func fetch() async throws -> UsageSnapshot {
     let token = try KeychainToken.read(service: keychainService)
 
