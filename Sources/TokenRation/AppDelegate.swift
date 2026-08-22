@@ -14,7 +14,7 @@ import AppKit
     providers.onMetricsSettled = { [weak self] knownIDs, settled in self?.prefs.reconcile(knownIDs: knownIDs, settled: settled) }
     statusBar = StatusBarController(providers: providers, prefs: prefs, updates: updates)
     providers.startAll()
-    Task { await updates.check() }
+    updates.start()
 
     // Stop polling while the machine is asleep and resume on wake. The resumed loops' first
     // attempts still pass through the guards in `refresh`, so frequent wakes (power naps on
@@ -27,17 +27,18 @@ import AppKit
   func applicationWillTerminate(_ notification: Notification) {
     Log.write("app terminating")
     providers.stopAll()
+    updates.stop()
   }
 
   @objc private func systemWillSleep() {
     Log.write("system sleeping")
     providers.stopAll()
+    updates.stop()
   }
 
   @objc private func systemDidWake() {
     Log.write("system woke")
     providers.startAll()
-    // Self-throttled to once a day, so long-running instances still notice releases.
-    Task { await updates.check() }
+    updates.start()
   }
 }

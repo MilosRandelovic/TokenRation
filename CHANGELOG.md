@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3]
+
+- The update check runs on its own half-hourly cadence and when the panel is opened, so a
+  long-running app notices a release instead of relying on a launch or a wake.
+- A new version is announced once with a notification, alongside the panel's banner.
+- Update checks are logged, so a failed or skipped check can be seen.
+
 ## [0.1.2]
 
 - Replacing rejected credentials ends the hold they caused, so signing in again through the CLI
