@@ -2,6 +2,7 @@
 
 ## [0.1.3]
 
+- Adds an app icon, shown in Finder, Spotlight, the About panel and on update notifications.
 - The update check runs on its own half-hourly cadence and when the panel is opened, so a
   long-running app notices a release instead of relying on a launch or a wake.
 - A new version is announced once with a notification, alongside the panel's banner.

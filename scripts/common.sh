@@ -8,6 +8,7 @@ BUNDLE_ID="com.milos.tokenration"
 SHORT_VERSION="0.1.3"
 BUILD_VERSION="1"
 MIN_MACOS="14.0"
+ICON_NAME="AppIcon"
 
 # Build the release binary and lay out <APP_NAME>.app (unsigned).
 # Sets $APP to the bundle path for the caller.
@@ -29,6 +30,9 @@ assemble_bundle() {
   cp "$bin" "$contents/MacOS/$APP_NAME"
   # Bundled MCP server; the Homebrew cask symlinks this onto the PATH.
   cp "$binDir/$MCP_NAME" "$contents/MacOS/$MCP_NAME"
+  # LSUIElement keeps it out of the Dock, but Finder, Spotlight, the About panel and every
+  # notification still show the icon.
+  cp "$root/Resources/$ICON_NAME.icns" "$contents/Resources/$ICON_NAME.icns"
 
   cat > "$contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -43,6 +47,7 @@ assemble_bundle() {
 	<key>CFBundleShortVersionString</key><string>$SHORT_VERSION</string>
 	<key>CFBundleVersion</key><string>$BUILD_VERSION</string>
 	<key>LSMinimumSystemVersion</key><string>$MIN_MACOS</string>
+	<key>CFBundleIconFile</key><string>$ICON_NAME</string>
 	<key>LSUIElement</key><true/>
 </dict>
 </plist>
