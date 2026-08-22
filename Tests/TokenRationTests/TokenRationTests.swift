@@ -8,8 +8,31 @@ import XCTest
 private struct StubProvider: UsageProviding {
   let provider: Provider
   let outcome: @Sendable () throws -> UsageSnapshot
+  /// Stands in for the credentials on disk; read through a box so a test can swap them
+  /// mid-flight the way the CLI rewriting the Keychain does.
+  var credentials: Box<String>? = nil
 
   func fetch() async throws -> UsageSnapshot { try outcome() }
+  func credentialFingerprint() async -> String? { credentials?.value }
+}
+
+/// A value a `@Sendable` provider can read and a test can change.
+private final class Box<T>: @unchecked Sendable {
+  private let lock = NSLock()
+  private var stored: T
+  init(_ value: T) { stored = value }
+  var value: T {
+    get {
+      lock.lock();
+      defer { lock.unlock() };
+      return stored
+    }
+    set {
+      lock.lock();
+      stored = newValue;
+      lock.unlock()
+    }
+  }
 }
 
 /// Mutable flag usable from a `@Sendable` closure.
@@ -202,6 +225,49 @@ private func snapshot(_ id: String) -> UsageSnapshot {
     XCTAssertFalse(fetched.isSet, "must not fetch while a legacy 429 deadline is still in force")
     XCTAssertGreaterThan(wait, 30 * 60, "should wait out the stored deadline")
     XCTAssertNotNil(defaults.object(forKey: "nextAttemptAt.codex"), "the legacy deadline should be migrated forward")
+  }
+
+  /// Replacing rejected credentials must end the hold they caused. Without this the panel tells
+  /// you to refresh the CLI and then ignores the result for the rest of the interval.
+  func testReplacedCredentialsEndTheAuthHold() async {
+    let defaults = makeDefaults()
+    let credentials = Box("token-a")
+    let reject = Box(true)
+    let provider = StubProvider(
+      provider: .codex, outcome: { if reject.value { throw UsageError.sessionExpired } else { return snapshot("codex:primary") } },
+      credentials: credentials)
+    let model = UsageModel(provider: provider, defaults: defaults)
+
+    let held = await model.refresh(trigger: "test")
+    XCTAssertGreaterThan(held, 120, "a rejection should hold off")
+
+    // Same credentials: the hold must stand.
+    let stillHeld = await model.refresh(trigger: "unchanged")
+    XCTAssertGreaterThan(stillHeld, 0)
+    XCTAssertNotNil(defaults.object(forKey: "nextAttemptAt.codex"), "an unchanged token must not clear the hold")
+
+    // The CLI writes a new token: the next attempt must go through and succeed.
+    credentials.value = "token-b"
+    reject.value = false
+    let afterRefresh = await model.refresh(trigger: "after-cli-refresh")
+    XCTAssertGreaterThan(afterRefresh, 60, "a success returns the normal poll interval")
+    XCTAssertNil(defaults.object(forKey: "nextAttemptAt.codex"), "replaced credentials should have cleared the hold")
+  }
+
+  /// A 429 is the server asking for quiet, not a credential problem, so new credentials must
+  /// not be treated as licence to retry early.
+  func testReplacedCredentialsDoNotCutShortARateLimitHold() async {
+    let defaults = makeDefaults()
+    let credentials = Box("token-a")
+    let provider = StubProvider(provider: .codex, outcome: { throw UsageError.rateLimited(retryAfter: 3600) }, credentials: credentials)
+    let model = UsageModel(provider: provider, defaults: defaults)
+
+    let held = await model.refresh(trigger: "test")
+    XCTAssertGreaterThan(held, 30 * 60, "a 429 with retry-after should hold for the hour")
+
+    credentials.value = "token-b"
+    let afterRefresh = await model.refresh(trigger: "after-cli-refresh")
+    XCTAssertGreaterThan(afterRefresh, 30 * 60, "new credentials must not shorten a rate-limit hold")
   }
 
   func testSuccessClearsBackoff() async {

@@ -56,6 +56,7 @@ import Observation
   @ObservationIgnored private let nextAttemptKey: String
   @ObservationIgnored private let failuresKey: String
   @ObservationIgnored private let lastAttemptKey: String
+  @ObservationIgnored private let heldCredentialKey: String
 
   /// Which source this model polls.
   let source: Provider
@@ -73,6 +74,7 @@ import Observation
     self.nextAttemptKey = "nextAttemptAt.\(suffix)"
     self.failuresKey = "consecutiveFailures.\(suffix)"
     self.lastAttemptKey = "lastAttemptAt.\(suffix)"
+    self.heldCredentialKey = "rejectedCredential.\(suffix)"
     // Restore any backoff that was in force when we last ran.
     let legacyDeadline = defaults.object(forKey: deadlineKey) as? Date
     if let legacyDeadline, legacyDeadline > Date() { rateLimitedUntil = legacyDeadline }
@@ -117,9 +119,17 @@ import Observation
   /// Record a backoff that survives stop/start and relaunch.
   private func holdOff(_ seconds: TimeInterval) { nextAttemptAt = Date().addingTimeInterval(seconds) }
 
+  /// The credential fingerprint that was rejected, when the current hold is an auth hold.
+  /// Set only by the auth paths, so a 429 hold never carries one and is never cut short.
+  private var heldCredentialFingerprint: String? {
+    get { defaults.string(forKey: heldCredentialKey) }
+    set { if let newValue { defaults.set(newValue, forKey: heldCredentialKey) } else { defaults.removeObject(forKey: heldCredentialKey) } }
+  }
+
   private func clearBackoff() {
     setRateLimited(until: nil)
     nextAttemptAt = nil
+    heldCredentialFingerprint = nil
   }
 
   // MARK: - Loop
@@ -163,12 +173,22 @@ import Observation
     let effectiveDeadline = [nextAttemptAt, rateLimitedUntil].compactMap { $0 }.max()
     if let until = effectiveDeadline {
       if until > Date() {
-        let remaining = until.timeIntervalSinceNow
-        let reason = rateLimitedUntil != nil ? "rate-limited" : "backing off"
-        log("skip (\(trigger)): \(reason), \(Int(remaining))s remaining")
-        return remaining
+        // Credentials replaced since they were rejected: the hold exists to wait for exactly
+        // this, so attempt now rather than sitting out the rest of it. Only the auth paths
+        // record a fingerprint, so a 429 — the server asking for quiet — still holds.
+        if await credentialsReplaced() {
+          log("credentials replaced since they were rejected — attempting now")
+          clearBackoff()
+          consecutiveFailures = 0
+        } else {
+          let remaining = until.timeIntervalSinceNow
+          let reason = rateLimitedUntil != nil ? "rate-limited" : "backing off"
+          log("skip (\(trigger)): \(reason), \(Int(remaining))s remaining")
+          return remaining
+        }
+      } else {
+        clearBackoff()
       }
-      clearBackoff()
     }
 
     // 2. Never two attempts inside the minimum gap, however they were triggered. This is
@@ -226,6 +246,7 @@ import Observation
       // One that repeats means the credentials really are stale and only a sign-in fixes it.
       let wait = jittered(consecutiveFailures == 1 ? Self.rejectedTokenRetry : Self.authRetryInterval)
       holdOff(wait)
+      heldCredentialFingerprint = await provider.credentialFingerprint()
       log("token rejected (failures \(consecutiveFailures)) — retrying in \(Int(wait))s")
       return wait
     } catch UsageError.notSignedIn {
@@ -234,6 +255,7 @@ import Observation
       lastError = UsageError.notSignedIn.errorDescription
       let wait = jittered(Self.authRetryInterval)
       holdOff(wait)
+      heldCredentialFingerprint = await provider.credentialFingerprint()
       log("no stored credentials — retrying in \(Int(wait))s")
       return wait
     } catch {
@@ -263,6 +285,13 @@ import Observation
       }
     }
     pathMonitor.start(queue: DispatchQueue.global(qos: .utility))
+  }
+
+  /// Whether the credentials on disk differ from the ones whose rejection caused the hold.
+  /// False whenever the hold has no fingerprint, so non-auth holds are left alone.
+  private func credentialsReplaced() async -> Bool {
+    guard let rejected = heldCredentialFingerprint, let current = await provider.credentialFingerprint() else { return false }
+    return current != rejected
   }
 
   /// ±10%, so several machines (or a restart storm) don't line up on the same tick.

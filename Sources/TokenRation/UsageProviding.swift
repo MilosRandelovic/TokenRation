@@ -6,7 +6,15 @@ protocol UsageProviding: Sendable {
   /// Which source this reads — used to namespace persisted state and log lines.
   var provider: Provider { get }
   func fetch() async throws -> UsageSnapshot
+
+  /// A marker for the credentials this provider would use right now — enough to notice they
+  /// were replaced, never enough to authenticate with. When credentials are rejected, this is
+  /// what a held-off model watches: a new value means the rejection may already be resolved.
+  /// `nil` for providers with nothing to fingerprint, which simply never gets an early retry.
+  func credentialFingerprint() async -> String?
 }
+
+extension UsageProviding { func credentialFingerprint() async -> String? { nil } }
 
 /// Failures shared by the Keychain reader and the live provider, phrased for the UI.
 enum UsageError: LocalizedError {

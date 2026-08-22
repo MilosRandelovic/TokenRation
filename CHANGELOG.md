@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.2]
+
+- Replacing rejected credentials ends the hold they caused, so signing in again through the CLI
+  restores readings on the next refresh rather than at the end of the interval.
+- A rate-limit hold is unaffected: a 429 asks for quiet regardless of which credentials are used.
+
 ## [0.1.1]
 
 - A rejected access token is retried within a few minutes, so one the CLI rotates mid-session is
