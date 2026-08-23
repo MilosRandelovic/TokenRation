@@ -4,7 +4,7 @@
 
 - The bundle identifier is now `com.milosrandelovic.tokenration`, a reverse-DNS name under an
   owned domain. Preferences are keyed by it, so pinned metrics start from the default again.
-- Adds an app icon, shown in Finder, Spotlight, the About panel and on update notifications.
+- Adds an app icon, shown in the panel header, Finder, Spotlight and on update notifications.
 - The update check runs on its own half-hourly cadence and when the panel is opened, so a
   long-running app notices a release instead of relying on a launch or a wake.
 - A new version is announced once with a notification, alongside the panel's banner.

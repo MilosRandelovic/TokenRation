@@ -124,7 +124,7 @@ struct UsagePanelView: View {
 
   private var header: some View {
     HStack(spacing: 6) {
-      Image(systemName: "gauge.with.dots.needle.bottom.50percent")
+      appIcon(size: 16)
       Text("TokenRation").font(.headline)
       Spacer()
       if model?.isRefreshing == true { ProgressView().controlSize(.small) }
@@ -133,6 +133,15 @@ struct UsagePanelView: View {
       } label: {
         Image(systemName: "info.circle")
       }.buttonStyle(.borderless).help("About TokenRation")
+    }
+  }
+
+  /// The app's own icon. An unbundled build (`swift run`) has none, so a glyph stands in there.
+  @ViewBuilder private func appIcon(size: CGFloat) -> some View {
+    if let icon = NSApp.applicationIconImage {
+      Image(nsImage: icon).resizable().frame(width: size, height: size)
+    } else {
+      Image(systemName: "gauge.with.dots.needle.bottom.50percent")
     }
   }
 
@@ -232,7 +241,7 @@ struct UsagePanelView: View {
 
   private var aboutView: some View {
     VStack(spacing: 10) {
-      Image(systemName: "gauge.with.dots.needle.bottom.50percent").font(.largeTitle).foregroundStyle(.secondary)
+      appIcon(size: 48)
       Text("TokenRation").font(.headline)
       Text("Version \(Self.appVersion)").font(.caption).foregroundStyle(.secondary)
       if updates.updateAvailable {
