@@ -5,8 +5,6 @@ import AppKit
 @main enum EntryPoint {
   static func main() {
     MainActor.assumeIsolated {
-      // Before anything reads preferences: the models load persisted backoff at init.
-      PreferencesMigration.run()
       let app = NSApplication.shared
       let delegate = AppDelegate()
       app.delegate = delegate

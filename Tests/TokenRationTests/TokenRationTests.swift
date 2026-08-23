@@ -153,41 +153,6 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   }
 }
 
-// MARK: - Bundle identifier change
-
-@MainActor final class PreferencesMigrationTests: XCTestCase {
-  /// Pins and backoff deadlines have to survive the rename, or an upgrade silently resets the
-  /// menu bar and drops an active hold-off.
-  func testLegacyPreferencesAreCarriedOver() {
-    let defaults = makeDefaults()
-    let legacy: [String: Any] = [
-      "shownMetricIDs": ["claude:weekly"], "nextAttemptAt.claude": Date(timeIntervalSince1970: 1_000_000), "consecutiveFailures.claude": 3,
-    ]
-    PreferencesMigration.run(into: defaults, legacy: legacy)
-
-    XCTAssertEqual(defaults.stringArray(forKey: "shownMetricIDs"), ["claude:weekly"])
-    XCTAssertEqual(defaults.integer(forKey: "consecutiveFailures.claude"), 3)
-    XCTAssertNotNil(defaults.object(forKey: "nextAttemptAt.claude"), "an active hold-off must not be dropped")
-  }
-
-  /// Anything already set in the new domain wins: the old values are stale by then.
-  func testExistingValuesAreNotOverwritten() {
-    let defaults = makeDefaults()
-    defaults.set(["codex:primary"], forKey: "shownMetricIDs")
-    PreferencesMigration.run(into: defaults, legacy: ["shownMetricIDs": ["claude:weekly"]])
-    XCTAssertEqual(defaults.stringArray(forKey: "shownMetricIDs"), ["codex:primary"])
-  }
-
-  /// Running twice must not resurrect values the user has since unpinned.
-  func testMigrationRunsOnlyOnce() {
-    let defaults = makeDefaults()
-    PreferencesMigration.run(into: defaults, legacy: ["shownMetricIDs": ["claude:weekly"]])
-    defaults.removeObject(forKey: "shownMetricIDs")
-    PreferencesMigration.run(into: defaults, legacy: ["shownMetricIDs": ["claude:weekly"]])
-    XCTAssertNil(defaults.object(forKey: "shownMetricIDs"), "a second run must not undo a later change")
-  }
-}
-
 // MARK: - Update checking
 
 @MainActor final class UpdateCheckerTests: XCTestCase {
