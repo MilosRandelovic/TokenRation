@@ -182,6 +182,23 @@ private func snapshot(_ id: String) -> UsageSnapshot {
     XCTAssertEqual(checker.latestVersion, "0.9.9", "a skipped check must not disturb the cached answer")
   }
 
+  /// The force flag has to beat the spacing guard, or asking by hand does nothing until the
+  /// window happens to be open.
+  func testForceFlagOverridesTheGapAndIsConsumed() {
+    let defaults = makeDefaults()
+    defaults.set(Date(), forKey: "lastUpdateCheck")  // a check just happened
+    let checker = UpdateChecker(defaults: defaults)
+    XCTAssertEqual(checker.decide(), .skip, "without the flag, a recent check must suppress the next one")
+
+    defaults.set(true, forKey: "forceUpdateCheck")
+    XCTAssertEqual(checker.decide(), .forced, "the flag must win over the spacing")
+    XCTAssertEqual(checker.decide(), .skip, "and must be consumed, so it cannot check on every tick")
+    XCTAssertFalse(defaults.bool(forKey: "forceUpdateCheck"), "the flag itself should be cleared")
+  }
+
+  /// With no record of a previous check, the first one has to run.
+  func testFirstCheckIsDue() { XCTAssertEqual(UpdateChecker(defaults: makeDefaults()).decide(), .due) }
+
   /// The cached answer has to be readable before any network call completes, or the panel shows
   /// nothing on launch even when an update is already known.
   func testCachedVersionIsRestoredAtInit() {

@@ -39,6 +39,7 @@ A native macOS **menu-bar app** (SwiftUI + AppKit, Swift 6, macOS 14+) that show
 - **Menu-bar icons must be template images** (`isTemplate = true`, drawn black) so macOS tints them for light/dark. No hardcoded colours there; severity colour lives in the panel gauges.
 - **Don't use `NSPopover`** for the dropdown — it can't reposition as the item resizes and its transient dismissal fights the status-item click. Use the owned `NSPanel` instead (smooth `setFrame` re-centering + explicit click-outside monitor).
 - **Metric ids are provider-namespaced** (`claude:session`, `codex:model:…`); `Preferences` has a one-shot migration for pre-Codex ids. Keep new ids namespaced or pinning breaks.
+- **The update check is self-spaced, and forceable.** It runs on a 30-minute persisted gap, from its own loop plus panel opens, and announces a version once. To exercise the notification without installing an older build: `defaults write com.milos.tokenration forceUpdateCheck -bool true`, then reopen the panel or relaunch — the flag waives both the gap and the once-per-version guard, and is consumed on use. It cannot invent an update: something newer than the running build has to be released for anything to be announced.
 - Off-main work returns `Sendable` types; UI types are `@MainActor`.
 - Full descriptive names; comment intent, not change history.
 
