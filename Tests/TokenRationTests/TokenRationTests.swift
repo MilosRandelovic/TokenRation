@@ -153,6 +153,55 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   }
 }
 
+// MARK: - Update checking
+
+@MainActor final class UpdateCheckerTests: XCTestCase {
+  /// Three-part versions must order numerically, not lexically: the whole point of the check is
+  /// noticing 0.1.2 while running 0.1.1, and "0.1.10" must beat "0.1.9" rather than lose to it.
+  func testVersionOrdering() {
+    XCTAssertTrue(UpdateChecker.isNewer("0.1.2", than: "0.1.1"))
+    XCTAssertTrue(UpdateChecker.isNewer("0.1.10", than: "0.1.9"))
+    XCTAssertTrue(UpdateChecker.isNewer("0.2.0", than: "0.1.99"))
+    XCTAssertTrue(UpdateChecker.isNewer("1.0.0", than: "0.9.9"))
+    XCTAssertFalse(UpdateChecker.isNewer("0.1.1", than: "0.1.1"))
+    XCTAssertFalse(UpdateChecker.isNewer("0.1.1", than: "0.1.2"))
+    // A shorter version is the same as one zero-padded, so neither direction is "newer".
+    XCTAssertFalse(UpdateChecker.isNewer("0.1", than: "0.1.0"))
+    XCTAssertFalse(UpdateChecker.isNewer("0.1.0", than: "0.1"))
+  }
+
+  /// A recorded check must suppress the next request for the whole gap; without this the panel
+  /// trigger would fire a request on every click.
+  func testRecentCheckIsSkipped() async {
+    let defaults = makeDefaults()
+    defaults.set(Date(), forKey: "lastUpdateCheck")
+    defaults.set("0.9.9", forKey: "latestKnownVersion")
+    let checker = UpdateChecker(defaults: defaults)
+
+    await checker.check()
+    XCTAssertEqual(checker.latestVersion, "0.9.9", "a skipped check must not disturb the cached answer")
+  }
+
+  /// With no record of a previous check, the first one has to run.
+  func testFirstCheckIsDue() { XCTAssertTrue(UpdateChecker(defaults: makeDefaults()).isDue) }
+
+  /// A check that just happened must suppress the next one, or the panel trigger would fire a
+  /// request on every click.
+  func testRecentCheckIsNotDue() {
+    let defaults = makeDefaults()
+    defaults.set(Date(), forKey: "lastUpdateCheck")
+    XCTAssertFalse(UpdateChecker(defaults: defaults).isDue)
+  }
+
+  /// The cached answer has to be readable before any network call completes, or the panel shows
+  /// nothing on launch even when an update is already known.
+  func testCachedVersionIsRestoredAtInit() {
+    let defaults = makeDefaults()
+    defaults.set("1.2.3", forKey: "latestKnownVersion")
+    XCTAssertEqual(UpdateChecker(defaults: defaults).latestVersion, "1.2.3")
+  }
+}
+
 // MARK: - 2. Backoff persistence · 4. Retry-After as a strict lower bound
 
 @MainActor final class BackoffTests: XCTestCase {

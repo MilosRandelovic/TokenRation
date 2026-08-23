@@ -26,6 +26,7 @@ private struct PanelRoot: View {
 @MainActor final class StatusBarController: NSObject {
   private let providers: ProvidersModel
   private let prefs: Preferences
+  private let updates: UpdateChecker
   private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
   private let hostingView: NSHostingView<PanelRoot>
   private let panel: PanelWindow
@@ -40,6 +41,7 @@ private struct PanelRoot: View {
   init(providers: ProvidersModel, prefs: Preferences, updates: UpdateChecker) {
     self.providers = providers
     self.prefs = prefs
+    self.updates = updates
     self.hostingView = NSHostingView(rootView: PanelRoot(providers: providers, prefs: prefs, updates: updates))
     self.panel = PanelWindow(
       contentRect: NSRect(x: 0, y: 0, width: 300, height: 220), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
@@ -160,6 +162,9 @@ private struct PanelRoot: View {
     // Background polling is slow by design; top up when the panel is opened — but only if
     // the reading is stale, so opening it repeatedly can't spam the endpoint.
     if let model = providers.selectedModel, model.isStale() { Task { await model.refresh(trigger: "panel opened") } }
+    // Opening the panel is when the update banner is actually read; the checker's own gap keeps
+    // this from turning into a request per click.
+    Task { await updates.check() }
     startMonitors()
     trackTimer = Timer.scheduledTimer(timeInterval: 0.1, target: self, selector: #selector(trackTick), userInfo: nil, repeats: true)
   }

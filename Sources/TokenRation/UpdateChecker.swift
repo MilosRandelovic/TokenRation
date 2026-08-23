@@ -1,22 +1,32 @@
 import Foundation
 import Observation
+import UserNotifications
 
-/// Checks GitHub Releases for a newer version and remembers the answer.
+/// Checks GitHub Releases for a newer version, remembers the answer, and notifies once per
+/// version.
 ///
-/// Deliberately low-traffic: at most one request per 24h (persisted across launches), fired
-/// on launch and on wake rather than on a timer. The last result is cached in UserDefaults so
-/// the panel can show a known update immediately, before any network call completes.
+/// Runs on its own cadence rather than only at launch and wake: a menu-bar app can stay up for
+/// days without either happening, and a check that lands minutes before a release would then be
+/// the last one for the rest of the session. The persisted deadline is what keeps the traffic
+/// low — restart storms and repeated wakes all collapse onto the same gap.
 @Observable @MainActor final class UpdateChecker {
-  /// Latest released version (e.g. "0.2"), if a check has ever succeeded.
+  /// Latest released version (e.g. "0.1.2"), if a check has ever succeeded.
   private(set) var latestVersion: String?
 
   @ObservationIgnored private let repository = "MilosRandelovic/TokenRation"
-  @ObservationIgnored private let checkInterval: TimeInterval = 24 * 60 * 60
-  @ObservationIgnored private let defaults = UserDefaults.standard
+  /// Minimum spacing between requests. GitHub allows 60 an hour unauthenticated; this uses two.
+  @ObservationIgnored private static let checkInterval: TimeInterval = 30 * 60
+  @ObservationIgnored private let defaults: UserDefaults
+  @ObservationIgnored private var loop: Task<Void, Never>?
+  @ObservationIgnored private var loggedDenial = false
   @ObservationIgnored private static let lastCheckKey = "lastUpdateCheck"
   @ObservationIgnored private static let latestVersionKey = "latestKnownVersion"
+  @ObservationIgnored private static let notifiedVersionKey = "notifiedVersion"
 
-  init() { latestVersion = defaults.string(forKey: Self.latestVersionKey) }
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+    latestVersion = defaults.string(forKey: Self.latestVersionKey)
+  }
 
   /// The running app's version, or nil when run without a bundle (e.g. `swift run`).
   var currentVersion: String? { Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String }
@@ -29,20 +39,49 @@ import Observation
 
   var releasesURL: URL { URL(string: "https://github.com/\(repository)/releases/latest")! }
 
-  /// Fetch the latest release tag, unless we checked recently.
+  /// Begin checking, and keep checking for as long as the app is awake.
+  func start() {
+    guard loop == nil else { return }
+    // Ask for notification permission now: the prompt has to be answered before a notification
+    // can be posted, and asking at launch puts it in front of someone who is already here,
+    // rather than whenever a release happens to land.
+    Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
+    loop = Task { [weak self] in
+      while !Task.isCancelled {
+        await self?.check()
+        try? await Task.sleep(for: .seconds(Self.checkInterval))
+      }
+    }
+  }
+
+  func stop() {
+    loop?.cancel()
+    loop = nil
+  }
+
+  /// Whether the spacing since the last successful check has elapsed.
+  var isDue: Bool {
+    guard let last = defaults.object(forKey: Self.lastCheckKey) as? Date else { return true }
+    return Date().timeIntervalSince(last) >= Self.checkInterval
+  }
+
+  /// Fetch the latest release tag, unless a check succeeded recently.
   func check() async {
-    guard currentVersion != nil else { return }  // unbundled build; nothing to compare
-    if let last = defaults.object(forKey: Self.lastCheckKey) as? Date, Date().timeIntervalSince(last) < checkInterval { return }
+    guard let current = currentVersion else { return }  // unbundled build; nothing to compare
+    guard isDue else { return }
 
     var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!)
     request.timeoutInterval = 10
     request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
     request.setValue("TokenRation", forHTTPHeaderField: "User-Agent")
 
-    guard let (data, response) = try? await URLSession.shared.data(for: request), let http = response as? HTTPURLResponse,
-      http.statusCode == 200, let release = try? JSONDecoder().decode(Release.self, from: data)
-    else {
-      return  // offline, rate-limited, or no releases yet — try again next window
+    guard let (data, response) = try? await URLSession.shared.data(for: request), let http = response as? HTTPURLResponse else {
+      Log.write("[update] check failed: no response")
+      return  // offline; try again next window
+    }
+    guard http.statusCode == 200, let release = try? JSONDecoder().decode(Release.self, from: data) else {
+      Log.write("[update] check failed: HTTP \(http.statusCode)")
+      return  // rate-limited, or no releases yet
     }
 
     // Record the check only on success, so a failure retries at the next opportunity.
@@ -50,6 +89,45 @@ import Observation
     let version = Self.normalize(release.tagName)
     latestVersion = version
     defaults.set(version, forKey: Self.latestVersionKey)
+
+    guard Self.isNewer(version, than: current) else {
+      Log.write("[update] \(current) is current (latest \(version))")
+      return
+    }
+    Log.write("[update] \(version) available (running \(current))")
+    await notify(about: version)
+  }
+
+  /// Tell the user once per version. Announcing the same release on every launch would train
+  /// them to ignore it, so the version announced is persisted rather than held in memory.
+  private func notify(about version: String) async {
+    guard defaults.string(forKey: Self.notifiedVersionKey) != version else { return }
+
+    let center = UNUserNotificationCenter.current()
+    var status = await center.notificationSettings().authorizationStatus
+    if status == .notDetermined {
+      // The request made at launch may still be sitting in front of the user. Waiting for their
+      // answer here keeps the very first announcement from being dropped on a fresh install.
+      _ = try? await center.requestAuthorization(options: [.alert, .sound])
+      status = await center.notificationSettings().authorizationStatus
+    }
+    guard status == .authorized || status == .provisional else {
+      // Only once per run: an update stays pending across many checks, and repeating this
+      // every half hour would bury the log.
+      if !loggedDenial {
+        Log.write("[update] notifications not permitted; the panel still shows the update")
+        loggedDenial = true
+      }
+      return
+    }
+
+    let content = UNMutableNotificationContent()
+    content.title = "TokenRation \(version) is available"
+    content.body = "Run brew upgrade tokenration to update."
+    do {
+      try await center.add(UNNotificationRequest(identifier: "update-\(version)", content: content, trigger: nil))
+      defaults.set(version, forKey: Self.notifiedVersionKey)
+    } catch { Log.write("[update] could not post notification: \(error.localizedDescription)") }
   }
 
   private struct Release: Decodable {
@@ -58,7 +136,7 @@ import Observation
     enum CodingKeys: String, CodingKey { case tagName = "tag_name" }
   }
 
-  /// "v0.2" -> "0.2"
+  /// "v0.1.2" -> "0.1.2"
   private static func normalize(_ tag: String) -> String { tag.hasPrefix("v") ? String(tag.dropFirst()) : tag }
 
   /// Numeric component-wise compare, so 0.10 correctly beats 0.9.
