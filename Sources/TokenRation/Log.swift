@@ -10,7 +10,7 @@ enum Log {
   static let fileURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/TokenRation.log")
 
   private static let maxBytes = 512 * 1024
-  private static let queue = DispatchQueue(label: "com.milos.tokenration.log")
+  private static let queue = DispatchQueue(label: "com.milosrandelovic.tokenration.log")
 
   static func write(_ message: String) {
     let url = fileURL

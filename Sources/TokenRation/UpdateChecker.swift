@@ -73,7 +73,7 @@ import UserNotifications
   /// Decides whether to check, consuming the force flag if one is set.
   ///
   /// Forcing exists because the notification is otherwise only reachable by running an older
-  /// build: `defaults write com.milos.tokenration forceUpdateCheck -bool true`. The flag is
+  /// build: `defaults write com.milosrandelovic.tokenration forceUpdateCheck -bool true`. The flag is
   /// consumed here rather than left standing, so a forgotten one cannot turn into a request
   /// on every tick.
   func decide() -> Decision {

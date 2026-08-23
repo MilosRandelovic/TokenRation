@@ -4,7 +4,7 @@
 # SHORT_VERSION is the release version: bumping it and pushing to main publishes a release.
 APP_NAME="TokenRation"
 MCP_NAME="tokenration-mcp"
-BUNDLE_ID="com.milos.tokenration"
+BUNDLE_ID="com.milosrandelovic.tokenration"
 SHORT_VERSION="0.1.3"
 BUILD_VERSION="1"
 MIN_MACOS="14.0"
