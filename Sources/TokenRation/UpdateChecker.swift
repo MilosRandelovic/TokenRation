@@ -22,7 +22,6 @@ import UserNotifications
   @ObservationIgnored private static let lastCheckKey = "lastUpdateCheck"
   @ObservationIgnored private static let latestVersionKey = "latestKnownVersion"
   @ObservationIgnored private static let notifiedVersionKey = "notifiedVersion"
-  @ObservationIgnored private static let forceKey = "forceUpdateCheck"
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -60,37 +59,16 @@ import UserNotifications
     loop = nil
   }
 
-  /// Whether a check runs now, and on whose behalf.
-  enum Decision: Equatable {
-    /// A check succeeded recently; leave it alone.
-    case skip
-    /// The spacing has elapsed.
-    case due
-    /// Asked for by hand, which also waives the once-per-version guard.
-    case forced
-  }
-
-  /// Decides whether to check, consuming the force flag if one is set.
-  ///
-  /// Forcing exists because the notification is otherwise only reachable by running an older
-  /// build: `defaults write com.milosrandelovic.tokenration forceUpdateCheck -bool true`. The flag is
-  /// consumed here rather than left standing, so a forgotten one cannot turn into a request
-  /// on every tick.
-  func decide() -> Decision {
-    if defaults.bool(forKey: Self.forceKey) {
-      defaults.set(false, forKey: Self.forceKey)
-      Log.write("[update] forced check requested")
-      return .forced
-    }
-    if let last = defaults.object(forKey: Self.lastCheckKey) as? Date, Date().timeIntervalSince(last) < Self.checkInterval { return .skip }
-    return .due
+  /// Whether the spacing since the last successful check has elapsed.
+  var isDue: Bool {
+    guard let last = defaults.object(forKey: Self.lastCheckKey) as? Date else { return true }
+    return Date().timeIntervalSince(last) >= Self.checkInterval
   }
 
   /// Fetch the latest release tag, unless a check succeeded recently.
   func check() async {
     guard let current = currentVersion else { return }  // unbundled build; nothing to compare
-    let decision = decide()
-    guard decision != .skip else { return }
+    guard isDue else { return }
 
     var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(repository)/releases/latest")!)
     request.timeoutInterval = 10
@@ -117,13 +95,13 @@ import UserNotifications
       return
     }
     Log.write("[update] \(version) available (running \(current))")
-    await notify(about: version, forced: decision == .forced)
+    await notify(about: version)
   }
 
   /// Tell the user once per version. Announcing the same release on every launch would train
   /// them to ignore it, so the version announced is persisted rather than held in memory.
-  private func notify(about version: String, forced: Bool) async {
-    guard forced || defaults.string(forKey: Self.notifiedVersionKey) != version else { return }
+  private func notify(about version: String) async {
+    guard defaults.string(forKey: Self.notifiedVersionKey) != version else { return }
 
     let center = UNUserNotificationCenter.current()
     var status = await center.notificationSettings().authorizationStatus
@@ -147,10 +125,7 @@ import UserNotifications
     content.title = "TokenRation \(version) is available"
     content.body = "Run brew upgrade tokenration to update."
     do {
-      // Reusing an identifier updates the existing notification in place instead of alerting
-      // again, which would defeat the point of asking for it by hand.
-      let identifier = forced ? "update-\(version)-\(UUID().uuidString)" : "update-\(version)"
-      try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+      try await center.add(UNNotificationRequest(identifier: "update-\(version)", content: content, trigger: nil))
       defaults.set(version, forKey: Self.notifiedVersionKey)
     } catch { Log.write("[update] could not post notification: \(error.localizedDescription)") }
   }
