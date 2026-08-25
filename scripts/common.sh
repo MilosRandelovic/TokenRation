@@ -18,7 +18,13 @@ assemble_bundle() {
   cd "$root"
 
   echo "==> Building release"
-  swift build -c release
+  # SwiftPM passes the deployment target to the linker but not the SDK version, so ld stamps
+  # LC_BUILD_VERSION's sdk field with the deployment target instead of the SDK actually used.
+  # AppKit reads that stamp to pick a control's appearance, so without this a local build renders
+  # system controls as macOS 14 would while the released build renders them as its own SDK does.
+  local sdkVersion
+  sdkVersion="$(xcrun --show-sdk-version)"
+  swift build -c release -Xlinker -platform_version -Xlinker macos -Xlinker "$MIN_MACOS" -Xlinker "$sdkVersion"
   local binDir="$(swift build -c release --show-bin-path)"
   local bin="$binDir/$APP_NAME"
 
