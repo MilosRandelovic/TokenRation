@@ -268,7 +268,7 @@ private struct PanelRoot: View {
   /// One metric: SF Symbol on the left, then two rows (big value over small secondary).
   private func segment(id: String) -> NSImage {
     let metric = providers.metric(id: id)
-    let symbol = symbolImage(metric?.symbolName ?? Self.symbolName(for: id))
+    let symbol = symbolImage(metric?.symbolName ?? DisplayMetric.symbolName(for: id))
     let primary = line(metric?.barText ?? "—", size: 11, weight: .semibold, lineHeight: 12)
     let secondary = line(menuSecondary(for: metric), size: 8, weight: .regular, lineHeight: 9)
 
@@ -319,22 +319,6 @@ private struct PanelRoot: View {
     if let resetsAt = metric.resetsAt, resetsAt.timeIntervalSinceNow > 0 { return ResetText.short(until: resetsAt) }
     if let fraction = metric.fraction { return "\(Int((fraction * 100).rounded()))%" }
     return ""
-  }
-
-  /// Fallback SF Symbol when a pinned metric has no data yet, derived from its namespaced id
-  /// (e.g. `codex:model:bengalfox`) so the segment still shows the right provider's glyph.
-  private static func symbolName(for id: String) -> String {
-    let parts = id.split(separator: ":", maxSplits: 1)
-    guard parts.count == 2, let provider = Provider(rawValue: String(parts[0])) else { return "gauge.with.dots.needle.bottom.50percent" }
-    let suffix = String(parts[1])
-    let kind: MetricKind
-    switch suffix {
-    case "session", "secondary": kind = .session
-    case "weekly", "primary": kind = .window
-    case "spend", "credits": kind = .money
-    default: kind = suffix.hasPrefix("model:") ? .model : .window
-    }
-    return provider.symbol(for: kind)
   }
 
   private func tooltip(ids: [String]) -> String {

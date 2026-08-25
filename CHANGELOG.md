@@ -2,6 +2,9 @@
 
 ## [0.1.4]
 
+- A cold start shows the last known reading immediately instead of a spinner. The app was
+  already writing it to disk for the MCP server; now it reads it back, and the footer reports the
+  reading's real age.
 - The provider tabs use the system segmented control, so they follow the current macOS design
   rather than a hand-drawn imitation of one release's appearance.
 

@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Observation
+import UsageState
 
 /// Owns the current reading and the polling loop. `@Observable` so the SwiftUI panel
 /// re-renders on change; also fires `onChange` so the AppKit status-bar buttons refresh.
@@ -63,7 +64,7 @@ import Observation
 
   init(
     provider: any UsageProviding = ClaudeUsageProvider(), baseInterval: TimeInterval = UsageModel.defaultInterval,
-    defaults: UserDefaults = .standard
+    defaults: UserDefaults = .standard, restoring: UsageState? = UsageStateStore.read()
   ) {
     self.provider = provider
     self.baseInterval = baseInterval
@@ -85,6 +86,11 @@ import Observation
     if let legacyDeadline, legacyDeadline > (storedNext ?? .distantPast) { defaults.set(legacyDeadline, forKey: nextAttemptKey) }
     if let next = defaults.object(forKey: nextAttemptKey) as? Date, next > Date() {
       log("launch: backoff restored, \(Int(next.timeIntervalSinceNow))s remaining")
+    }
+    // Show the last known numbers straight away; the fetch that follows replaces them.
+    if let stored = restoring?.providers.first(where: { $0.provider == source.rawValue }), let restored = UsageSnapshot(restoring: stored) {
+      snapshot = restored
+      log("restored last reading (\(Int(Date().timeIntervalSince(restored.updatedAt)))s old)")
     }
     startNetworkMonitor()
   }
