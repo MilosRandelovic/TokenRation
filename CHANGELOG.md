@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.4]
+
+- The provider tabs use the system segmented control, so they follow the current macOS design
+  rather than a hand-drawn imitation of one release's appearance.
+
 ## [0.1.3]
 
 - The bundle identifier is now `com.milosrandelovic.tokenration`, a reverse-DNS name under an

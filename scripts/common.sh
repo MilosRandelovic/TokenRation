@@ -5,7 +5,7 @@
 APP_NAME="TokenRation"
 MCP_NAME="tokenration-mcp"
 BUNDLE_ID="com.milosrandelovic.tokenration"
-SHORT_VERSION="0.1.3"
+SHORT_VERSION="0.1.4"
 BUILD_VERSION="1"
 MIN_MACOS="14.0"
 ICON_NAME="AppIcon"
