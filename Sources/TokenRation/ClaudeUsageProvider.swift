@@ -9,7 +9,9 @@ struct ClaudeUsageProvider: UsageProviding {
   var endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
   var keychainService = "Claude Code-credentials"
 
-  func credentialFingerprint() async -> String? { try? KeychainToken.fingerprint(service: keychainService) }
+  /// Absent or unusable credentials get a marker rather than nil, so that signing back in reads
+  /// as a change and clears the hold immediately instead of waiting out the auth interval.
+  func credentialFingerprint() async -> String? { (try? KeychainToken.fingerprint(service: keychainService)) ?? "none" }
 
   func fetch() async throws -> UsageSnapshot {
     let token = try KeychainToken.read(service: keychainService)

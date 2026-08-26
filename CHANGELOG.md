@@ -2,6 +2,10 @@
 
 ## [0.1.4]
 
+- Empty credentials are reported as signed out. The CLI writes the credential back with empty
+  strings when its refresh token has expired, and an empty bearer token earns an HTTP 429 — so the
+  app used to report a throttle, and back off for hours, over a sign-in problem. Signing back in
+  now clears the hold immediately.
 - A cold start shows the last known reading immediately instead of a spinner. The app was
   already writing it to disk for the MCP server; now it reads it back, and the footer reports the
   reading's real age.

@@ -28,16 +28,29 @@ enum KeychainToken {
     guard process.terminationStatus == 0 else { throw UsageError.notSignedIn }
 
     // `security -w` prints the secret plus a trailing newline; trim before parsing.
-    guard let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-      let jsonData = text.data(using: .utf8), let blob = try? JSONDecoder().decode(CredentialsBlob.self, from: jsonData)
-    else { throw UsageError.notSignedIn }
-    return blob.claudeAiOauth.accessToken
+    guard let text = String(data: data, encoding: .utf8) else { throw UsageError.notSignedIn }
+    return try token(fromSecret: text)
   }
 
   /// A short digest of the current token: enough to tell that it changed, not enough to use.
   static func fingerprint(service: String) throws -> String {
     let token = try read(service: service)
     return SHA256.hash(data: Data(token.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// Pulls the access token out of the stored blob.
+  ///
+  /// An empty token counts as signed out. The CLI writes the credential back with empty strings
+  /// when its refresh token has expired and the refresh fails, and sending `Bearer ` with nothing
+  /// after it earns an HTTP 429 rather than a 401 — so without this check the app reads a
+  /// throttle where the real answer is "sign in again", and backs off for hours over it.
+  static func token(fromSecret text: String) throws -> String {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let jsonData = trimmed.data(using: .utf8), let blob = try? JSONDecoder().decode(CredentialsBlob.self, from: jsonData) else {
+      throw UsageError.notSignedIn
+    }
+    guard !blob.claudeAiOauth.accessToken.isEmpty else { throw UsageError.notSignedIn }
+    return blob.claudeAiOauth.accessToken
   }
 
   /// The stored secret is a JSON blob: { "claudeAiOauth": { "accessToken": "..." } }

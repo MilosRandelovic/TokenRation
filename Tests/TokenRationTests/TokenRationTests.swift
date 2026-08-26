@@ -153,6 +153,31 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   }
 }
 
+// MARK: - Credentials
+
+final class KeychainTokenTests: XCTestCase {
+  /// The CLI writes the credential back with empty strings when its refresh token has expired
+  /// and the refresh fails. Sending that as a bearer token earns an HTTP 429, so treating it as
+  /// a real token makes the app report a throttle and back off for hours over a sign-in problem.
+  func testEmptyAccessTokenIsSignedOut() {
+    let secret = #"{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0}}"#
+    XCTAssertThrowsError(try KeychainToken.token(fromSecret: secret)) { error in
+      guard case UsageError.notSignedIn = error else { return XCTFail("expected notSignedIn, got \(error)") }
+    }
+  }
+
+  func testTokenIsReadFromTheBlob() throws {
+    let secret = #"{"claudeAiOauth":{"accessToken":"sk-test-value","refreshToken":"r"}}"# + "\n"
+    XCTAssertEqual(try KeychainToken.token(fromSecret: secret), "sk-test-value")
+  }
+
+  func testGarbageIsSignedOut() {
+    XCTAssertThrowsError(try KeychainToken.token(fromSecret: "not json")) { error in
+      guard case UsageError.notSignedIn = error else { return XCTFail("expected notSignedIn, got \(error)") }
+    }
+  }
+}
+
 // MARK: - Cold start
 
 @MainActor final class RestoredReadingTests: XCTestCase {
