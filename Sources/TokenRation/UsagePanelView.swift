@@ -21,48 +21,6 @@ private struct MeterBar: View {
   }
 }
 
-/// A grey that follows the panel's appearance, given as the white level to use in each.
-private func neutral(light: CGFloat, dark: CGFloat) -> Color {
-  Color(
-    nsColor: NSColor(name: nil) { appearance in
-      NSColor(white: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light, alpha: 1)
-    })
-}
-
-/// The provider tab strip.
-///
-/// Drawn rather than using a segmented control. `.pickerStyle(.segmented)` fills the selected
-/// segment with the system accent, and AppKit's `selectedSegmentBezelColor` — the only way to
-/// override that — switches the control to a legacy style with a divider ruled between the
-/// segments. The levels below are sampled from the segmented control's own unfocused rendering,
-/// so the strip keeps that appearance whatever the accent colour and whatever the SDK.
-private struct SegmentedTabs: View {
-  let titles: [String]
-  let selectedIndex: Int
-  let onSelect: (Int) -> Void
-
-  private let track = neutral(light: 0.937, dark: 0.235)
-  private let selection = neutral(light: 0.839, dark: 0.353)
-
-  var body: some View {
-    HStack(spacing: 0) { ForEach(titles.indices, id: \.self) { index in tab(index) } }.background(
-      RoundedRectangle(cornerRadius: 6, style: .continuous).fill(track)
-    ).fixedSize()
-  }
-
-  private func tab(_ index: Int) -> some View {
-    let selected = index == selectedIndex
-    return Button {
-      onSelect(index)
-    } label: {
-      Text(titles[index]).font(.system(size: 13)).foregroundStyle(.primary).frame(minWidth: 46).padding(.horizontal, 10).padding(
-        .vertical, 3
-      ).background { if selected { RoundedRectangle(cornerRadius: 5, style: .continuous).fill(selection).padding(1) } }.contentShape(
-        Rectangle())
-    }.buttonStyle(.plain).accessibilityLabel(titles[index]).accessibilityAddTraits(selected ? [.isSelected] : [])
-  }
-}
-
 /// The dropdown shown from the menu bar: a tab per detected provider, a meter per metric, a pin
 /// toggle to choose which metrics ride in the menu bar, and refresh/quit. Updates live because
 /// the models and `Preferences` are `@Observable`.
@@ -93,10 +51,16 @@ struct UsagePanelView: View {
   }
 
   /// One tab per detected provider. Only shown when both are set up.
+  ///
+  /// The system segmented control, deliberately: it is the standard way to switch between a few
+  /// mutually exclusive views, and it picks up whatever the current OS does with selection and
+  /// material. Earlier hand-drawn versions matched one macOS release and looked dated on the
+  /// next. The selection is accent-coloured because that is how the system shows selection, and
+  /// the accent is the user's own choice in System Settings.
   private var providerTabs: some View {
-    SegmentedTabs(
-      titles: providers.available.map(\.displayName), selectedIndex: providers.available.firstIndex(of: providers.selected) ?? 0,
-      onSelect: { index in providers.selected = providers.available[index] })
+    Picker("", selection: Binding(get: { providers.selected }, set: { providers.selected = $0 })) {
+      ForEach(providers.available, id: \.self) { provider in Text(provider.displayName).tag(provider) }
+    }.pickerStyle(.segmented).labelsHidden()
   }
 
   @ViewBuilder private var content: some View {

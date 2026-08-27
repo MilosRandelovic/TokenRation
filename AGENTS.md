@@ -40,6 +40,7 @@ A native macOS **menu-bar app** (SwiftUI + AppKit, Swift 6, macOS 14+) that show
 - **Don't use `NSPopover`** for the dropdown — it can't reposition as the item resizes and its transient dismissal fights the status-item click. Use the owned `NSPanel` instead (smooth `setFrame` re-centering + explicit click-outside monitor).
 - **Metric ids are provider-namespaced** (`claude:session`, `codex:model:…`); `Preferences` has a one-shot migration for pre-Codex ids. Keep new ids namespaced or pinning breaks.
 - **The update check is self-spaced.** It runs on a 30-minute persisted gap, driven by its own loop plus panel opens, and announces a version once. Launch and wake alone are not enough: a menu-bar app can stay up for days, so a check landing just before a release would otherwise be the last one of the session.
+- **A system control's appearance follows the linked SDK, not the running OS.** `LC_BUILD_VERSION`'s sdk field is what AppKit reads, and SwiftPM does not pass the SDK version to the linker — so ld stamps the deployment target and a plain `swift build` claims macOS 14. `assemble_bundle` passes `-platform_version` explicitly to record the real SDK; without it `make app` shows older styling than any release, and judging UI from such a build is misleading.
 - Off-main work returns `Sendable` types; UI types are `@MainActor`.
 - Full descriptive names; comment intent, not change history.
 

@@ -153,6 +153,83 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   }
 }
 
+// MARK: - Credentials
+
+final class KeychainTokenTests: XCTestCase {
+  /// The CLI writes the credential back with empty strings when its refresh token has expired
+  /// and the refresh fails. Sending that as a bearer token earns an HTTP 429, so treating it as
+  /// a real token makes the app report a throttle and back off for hours over a sign-in problem.
+  func testEmptyAccessTokenIsSignedOut() {
+    let secret = #"{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0}}"#
+    XCTAssertThrowsError(try KeychainToken.token(fromSecret: secret)) { error in
+      guard case UsageError.notSignedIn = error else { return XCTFail("expected notSignedIn, got \(error)") }
+    }
+  }
+
+  func testTokenIsReadFromTheBlob() throws {
+    let secret = #"{"claudeAiOauth":{"accessToken":"sk-test-value","refreshToken":"r"}}"# + "\n"
+    XCTAssertEqual(try KeychainToken.token(fromSecret: secret), "sk-test-value")
+  }
+
+  func testGarbageIsSignedOut() {
+    XCTAssertThrowsError(try KeychainToken.token(fromSecret: "not json")) { error in
+      guard case UsageError.notSignedIn = error else { return XCTFail("expected notSignedIn, got \(error)") }
+    }
+  }
+}
+
+// MARK: - Cold start
+
+@MainActor final class RestoredReadingTests: XCTestCase {
+  private func published(updatedAt: Date?) -> UsageState {
+    UsageState(
+      writtenAt: Date(), pollIntervalSeconds: 300,
+      providers: [
+        ProviderUsage(
+          provider: "codex", displayName: "Codex", status: "ok", error: nil, updatedAt: updatedAt, rateLimitedUntil: nil,
+          metrics: [
+            MetricUsage(
+              id: "codex:primary", title: "Weekly (7-day)", usedPercent: 41, value: "41%", detail: "41% used", severity: "warning",
+              resetsAt: Date(timeIntervalSince1970: 2_000_000))
+          ])
+      ])
+  }
+
+  /// A cold start must show the last known numbers, not a spinner: the guards can defer the
+  /// first fetch for minutes, and the reading is already on disk.
+  func testLastReadingIsShownBeforeAnyFetch() {
+    let updatedAt = Date(timeIntervalSinceNow: -600)
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { snapshot("codex:primary") }, defaults: makeDefaults(),
+      restoring: published(updatedAt: updatedAt))
+
+    XCTAssertTrue(model.snapshot.hasData, "the stored reading should be on screen immediately")
+    XCTAssertEqual(model.snapshot.metrics.first?.barText, "41%")
+    XCTAssertEqual(model.snapshot.metrics.first?.fraction, 0.41, "percent is stored 0-100 and displayed 0-1")
+    XCTAssertEqual(model.snapshot.metrics.first?.severity, .warning, "severity must survive the round trip")
+    XCTAssertEqual(model.snapshot.metrics.first?.provider, .codex, "the provider comes back from the namespaced id")
+    XCTAssertFalse(model.snapshot.metrics.first?.symbolName.isEmpty ?? true, "a glyph is rebuilt from the id")
+    XCTAssertEqual(model.snapshot.updatedAt, updatedAt, "age must be the reading's own, so the footer isn't misleading")
+    XCTAssertTrue(model.isStale(), "a ten-minute-old reading should still trigger a top-up")
+  }
+
+  /// A reading with no timestamp is not worth showing: the panel would claim data of unknown age.
+  func testReadingWithoutATimestampIsIgnored() {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { snapshot("codex:primary") }, defaults: makeDefaults(), restoring: published(updatedAt: nil)
+    )
+    XCTAssertFalse(model.snapshot.hasData)
+  }
+
+  /// Another provider's reading must not be adopted.
+  func testOnlyTheMatchingProviderIsRestored() {
+    let model = UsageModel(
+      provider: StubProvider(provider: .claude) { snapshot("claude:session") }, defaults: makeDefaults(),
+      restoring: published(updatedAt: Date()))
+    XCTAssertFalse(model.snapshot.hasData, "a Codex reading must not appear under Claude")
+  }
+}
+
 // MARK: - Update checking
 
 @MainActor final class UpdateCheckerTests: XCTestCase {

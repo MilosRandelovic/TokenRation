@@ -48,6 +48,24 @@ struct DisplayMetric: Identifiable, Sendable, Equatable {
 }
 
 /// A full reading: every metric plus when it was fetched.
+extension DisplayMetric {
+  /// SF Symbol for a metric known only by its namespaced id (e.g. `codex:model:bengalfox`) —
+  /// used when a pinned metric has no reading yet, and when rebuilding a stored one.
+  static func symbolName(for id: String) -> String {
+    let parts = id.split(separator: ":", maxSplits: 1)
+    guard parts.count == 2, let provider = Provider(rawValue: String(parts[0])) else { return "gauge.with.dots.needle.bottom.50percent" }
+    let suffix = String(parts[1])
+    let kind: MetricKind
+    switch suffix {
+    case "session", "secondary": kind = .session
+    case "weekly", "primary": kind = .window
+    case "spend", "credits": kind = .money
+    default: kind = suffix.hasPrefix("model:") ? .model : .window
+    }
+    return provider.symbol(for: kind)
+  }
+}
+
 struct UsageSnapshot: Sendable, Equatable {
   var metrics: [DisplayMetric]
   var updatedAt: Date
