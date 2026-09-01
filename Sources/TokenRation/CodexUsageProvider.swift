@@ -77,11 +77,12 @@ struct CodexUsageProvider: UsageProviding {
       // put a short window in `primary`, some in `secondary`, and some have no short window at
       // all. Role and order therefore come from each window's own duration — shortest first, so a
       // short limit reads above the weekly one, as Claude's session row does.
-      let slots = [(main.secondary, provider.metricID("secondary")), (main.primary, provider.metricID("primary"))]
-      let present = slots.compactMap { slot -> (Bucket.Window, String)? in slot.0.map { ($0, slot.1) } }.sorted {
-        ($0.0.windowDurationMins ?? .max) < ($1.0.windowDurationMins ?? .max)
+      let slots = [main.secondary, main.primary].compactMap { $0 }
+      // The id names the role, since the slot it arrived in carries no meaning.
+      for limit in slots.sorted(by: { ($0.windowDurationMins ?? .max) < ($1.windowDurationMins ?? .max) }) {
+        let role = kind(for: limit)
+        metrics.append(window(limit, id: provider.metricID(role == .session ? "session" : "window"), kind: role, title: label(for: limit)))
       }
-      for (limit, id) in present { metrics.append(window(limit, id: id, kind: kind(for: limit), title: label(for: limit))) }
       // Only show credits when the account actually has a balance to track.
       if let credits = main.credits, credits.hasCredits == true, let balance = credits.balance {
         metrics.append(

@@ -10,7 +10,6 @@ import Observation
   @ObservationIgnored var onChange: (@MainActor () -> Void)?
   @ObservationIgnored private let defaults: UserDefaults
   @ObservationIgnored private static let key = "shownMetricIDs"
-  @ObservationIgnored private static let migratedKey = "shownMetricIDs.namespaced"
 
   /// - Parameters:
   ///   - available: providers detected on this Mac. Pins are constrained to these, so
@@ -21,8 +20,7 @@ import Observation
     self.defaults = defaults
     let providers = available.isEmpty ? [Provider.claude] : available
     let stored = defaults.stringArray(forKey: Self.key) ?? []
-    let migrated = Self.migrateIfNeeded(stored, defaults: defaults)
-    shownMetricIDs = Self.sanitise(migrated, available: providers)
+    shownMetricIDs = Self.sanitise(stored, available: providers)
     // Persist the sanitised list so a pruned pin doesn't come back on the next launch.
     if shownMetricIDs != stored { defaults.set(shownMetricIDs, forKey: Self.key) }
   }
@@ -36,19 +34,6 @@ import Observation
       return available.contains(owner)
     }
     return kept.isEmpty ? [available[0].defaultMetricID] : kept
-  }
-
-  /// Metric ids gained a `provider:` prefix when Codex support landed. Rewrite any ids saved
-  /// by an earlier version once, so existing pins survive the upgrade.
-  private static func migrateIfNeeded(_ stored: [String], defaults: UserDefaults) -> [String] {
-    guard !defaults.bool(forKey: migratedKey) else { return stored }
-    let migrated = stored.map { id -> String in Provider.owning(metricID: id) != nil ? id : Provider.claude.metricID(id) }
-    defaults.set(true, forKey: migratedKey)
-    if migrated != stored {
-      defaults.set(migrated, forKey: key)
-      Log.write("migrated pinned metric ids to provider-namespaced form: \(migrated)")
-    }
-    return migrated
   }
 
   /// Drop pins that a provider's *successful* snapshot no longer contains — a per-model limit
