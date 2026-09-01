@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5]
+
+- Codex rate-limit windows are named, ordered and iconed by their own duration rather than by
+  which slot they arrive in. Plans differ in whether the short window is `primary` or `secondary`,
+  and some have no short window at all, so a plan with a 5-hour limit no longer shows it below the
+  weekly one wearing the weekly icon.
+
 ## [0.1.4]
 
 - Empty credentials are reported as signed out. The CLI writes the credential back with empty

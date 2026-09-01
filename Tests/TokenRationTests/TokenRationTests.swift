@@ -153,6 +153,54 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   }
 }
 
+// MARK: - Codex plan shapes
+
+/// Codex plans differ in which rate-limit windows exist and which slot each arrives in. These
+/// decode the wire payload the way the provider does, so plans nobody here can sign in to are
+/// still covered.
+final class CodexWindowTests: XCTestCase {
+  private func metrics(_ json: String) throws -> [DisplayMetric] {
+    let envelope = try JSONDecoder().decode(CodexUsageProvider.Envelope.self, from: Data(json.utf8))
+    return CodexUsageProvider.metrics(from: try XCTUnwrap(envelope.result))
+  }
+
+  private func payload(_ limits: String) -> String { #"{"id":2,"result":{"rateLimits":{"# + limits + #"}}}"# }
+
+  /// A weekly-only plan: one window, named and glyphed as the long one.
+  func testWeeklyOnlyPlan() throws {
+    let result = try metrics(payload(#""primary":{"usedPercent":41,"windowDurationMins":10080,"resetsAt":2000000}"#))
+    XCTAssertEqual(result.map(\.title), ["Weekly (7-day)"])
+    XCTAssertEqual(result.map(\.id), ["codex:primary"])
+  }
+
+  /// A plan with both windows, short one in `secondary`.
+  func testShortWindowInSecondary() throws {
+    let result = try metrics(
+      payload(#""primary":{"usedPercent":41,"windowDurationMins":10080},"secondary":{"usedPercent":12,"windowDurationMins":300}"#))
+    XCTAssertEqual(result.map(\.title), ["Session (5-hour)", "Weekly (7-day)"], "shortest window first")
+  }
+
+  /// The same plan shape with the slots swapped. Titles, order and glyphs must not change, because
+  /// the slot carries no meaning — this is the case a weekly-only account cannot exercise.
+  func testShortWindowInPrimary() throws {
+    let result = try metrics(
+      payload(#""primary":{"usedPercent":12,"windowDurationMins":300},"secondary":{"usedPercent":41,"windowDurationMins":10080}"#))
+    XCTAssertEqual(result.map(\.title), ["Session (5-hour)", "Weekly (7-day)"], "order follows duration, not slot")
+    // Paired with the title rather than checked by position: a positional check passes if order
+    // and glyph are both wrong in the same direction.
+    let glyphs = Dictionary(uniqueKeysWithValues: result.map { ($0.title, $0.symbolName) })
+    XCTAssertEqual(glyphs["Session (5-hour)"], Provider.codex.symbol(for: .session), "a 5-hour limit must not wear the weekly glyph")
+    XCTAssertEqual(glyphs["Weekly (7-day)"], Provider.codex.symbol(for: .window))
+  }
+
+  /// A window with no stated duration must not be guessed at.
+  func testWindowWithoutADurationIsUnnamed() throws {
+    let result = try metrics(payload(#""primary":{"usedPercent":5}"#))
+    XCTAssertEqual(result.map(\.title), ["Usage limit"])
+    XCTAssertEqual(result.map(\.symbolName), [Provider.codex.symbol(for: .window)], "an unknown window is the long one")
+  }
+}
+
 // MARK: - Credentials
 
 final class KeychainTokenTests: XCTestCase {
