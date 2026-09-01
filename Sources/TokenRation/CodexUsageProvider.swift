@@ -68,16 +68,20 @@ struct CodexUsageProvider: UsageProviding {
 
   // MARK: - Mapping
 
-  private static func metrics(from result: RateLimitsResult) -> [DisplayMetric] {
+  static func metrics(from result: RateLimitsResult) -> [DisplayMetric] {
     var metrics: [DisplayMetric] = []
     let provider = Provider.codex
 
     if let main = result.rateLimits {
-      if let secondary = main.secondary {
-        metrics.append(window(secondary, id: provider.metricID("secondary"), kind: .session, title: label(for: secondary)))
-      }
-      if let primary = main.primary {
-        metrics.append(window(primary, id: provider.metricID("primary"), kind: .window, title: label(for: primary)))
+      // Which slot holds which window is a property of the plan, not of the protocol: some plans
+      // put a short window in `primary`, some in `secondary`, and some have no short window at
+      // all. Role and order therefore come from each window's own duration — shortest first, so a
+      // short limit reads above the weekly one, as Claude's session row does.
+      let slots = [main.secondary, main.primary].compactMap { $0 }
+      // The id names the role, since the slot it arrived in carries no meaning.
+      for limit in slots.sorted(by: { ($0.windowDurationMins ?? .max) < ($1.windowDurationMins ?? .max) }) {
+        let role = kind(for: limit)
+        metrics.append(window(limit, id: provider.metricID(role == .session ? "session" : "window"), kind: role, title: label(for: limit)))
       }
       // Only show credits when the account actually has a balance to track.
       if let credits = main.credits, credits.hasCredits == true, let balance = credits.balance {
@@ -114,6 +118,13 @@ struct CodexUsageProvider: UsageProviding {
     case ..<80: .warning
     default: .critical
     }
+  }
+
+  /// Whether a window is a short rolling allowance or a long one, judged by its length rather
+  /// than by the slot it arrived in. Anything under a day counts as the short one.
+  private static func kind(for window: Bucket.Window) -> MetricKind {
+    guard let minutes = window.windowDurationMins, minutes < 1440 else { return .window }
+    return .session
   }
 
   /// Name a window by its duration, e.g. 10080 mins -> "Weekly (7-day)".

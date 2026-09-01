@@ -57,8 +57,8 @@ extension DisplayMetric {
     let suffix = String(parts[1])
     let kind: MetricKind
     switch suffix {
-    case "session", "secondary": kind = .session
-    case "weekly", "primary": kind = .window
+    case "session": kind = .session
+    case "weekly", "window": kind = .window
     case "spend", "credits": kind = .money
     default: kind = suffix.hasPrefix("model:") ? .model : .window
     }

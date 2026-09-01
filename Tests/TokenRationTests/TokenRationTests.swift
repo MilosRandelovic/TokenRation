@@ -71,38 +71,29 @@ private func snapshot(_ id: String) -> UsageSnapshot {
 @MainActor final class PreferencesTests: XCTestCase {
   func testCodexOnlyMachineDefaultsToACodexPin() {
     let prefs = Preferences(available: [.codex], defaults: makeDefaults())
-    XCTAssertEqual(prefs.shownMetricIDs, ["codex:primary"])
+    XCTAssertEqual(prefs.shownMetricIDs, ["codex:window"])
     XCTAssertFalse(
       prefs.shownMetricIDs.contains { $0.hasPrefix("claude:") }, "a Codex-only Mac must not pin an unpinnable Claude placeholder")
   }
 
   func testPinsForUndetectedProvidersArePruned() {
     let defaults = makeDefaults()
-    defaults.set(["claude:session", "codex:primary"], forKey: "shownMetricIDs")
-    defaults.set(true, forKey: "shownMetricIDs.namespaced")
+    defaults.set(["claude:session", "codex:window"], forKey: "shownMetricIDs")
 
     let prefs = Preferences(available: [.codex], defaults: defaults)
-    XCTAssertEqual(prefs.shownMetricIDs, ["codex:primary"])
+    XCTAssertEqual(prefs.shownMetricIDs, ["codex:window"])
     // The pruning is persisted, so it doesn't reappear next launch.
-    XCTAssertEqual(defaults.stringArray(forKey: "shownMetricIDs"), ["codex:primary"])
+    XCTAssertEqual(defaults.stringArray(forKey: "shownMetricIDs"), ["codex:window"])
   }
 
   func testPruningNeverLeavesTheMenuBarEmpty() {
     let defaults = makeDefaults()
     defaults.set(["claude:session"], forKey: "shownMetricIDs")
-    defaults.set(true, forKey: "shownMetricIDs.namespaced")
 
     let prefs = Preferences(available: [.codex], defaults: defaults)
-    XCTAssertEqual(prefs.shownMetricIDs, ["codex:primary"])
+    XCTAssertEqual(prefs.shownMetricIDs, ["codex:window"])
   }
 
-  func testLegacyUnnamespacedPinsMigrateToClaude() {
-    let defaults = makeDefaults()
-    defaults.set(["session", "weekly"], forKey: "shownMetricIDs")
-
-    let prefs = Preferences(available: [.claude, .codex], defaults: defaults)
-    XCTAssertEqual(prefs.shownMetricIDs, ["claude:session", "claude:weekly"])
-  }
 }
 
 // MARK: - 5b. Pins for metrics that vanish from a snapshot
@@ -110,46 +101,90 @@ private func snapshot(_ id: String) -> UsageSnapshot {
 @MainActor final class PinReconciliationTests: XCTestCase {
   func testPinForVanishedPerModelMetricIsDropped() {
     let defaults = makeDefaults()
-    defaults.set(["codex:primary", "codex:model:retired"], forKey: "shownMetricIDs")
-    defaults.set(true, forKey: "shownMetricIDs.namespaced")
+    defaults.set(["codex:window", "codex:model:retired"], forKey: "shownMetricIDs")
     let prefs = Preferences(available: [.codex], defaults: defaults)
 
     // Codex reported successfully, but the per-model limit is gone.
-    prefs.reconcile(knownIDs: ["codex:primary"], settled: [.codex])
+    prefs.reconcile(knownIDs: ["codex:window"], settled: [.codex])
 
-    XCTAssertEqual(prefs.shownMetricIDs, ["codex:primary"])
-    XCTAssertEqual(defaults.stringArray(forKey: "shownMetricIDs"), ["codex:primary"])
+    XCTAssertEqual(prefs.shownMetricIDs, ["codex:window"])
+    XCTAssertEqual(defaults.stringArray(forKey: "shownMetricIDs"), ["codex:window"])
   }
 
   func testPinsAreKeptForProvidersThatHaveNotReportedYet() {
     let defaults = makeDefaults()
-    defaults.set(["claude:session", "codex:primary"], forKey: "shownMetricIDs")
-    defaults.set(true, forKey: "shownMetricIDs.namespaced")
+    defaults.set(["claude:session", "codex:window"], forKey: "shownMetricIDs")
     let prefs = Preferences(available: [.claude, .codex], defaults: defaults)
 
     // Only Codex has data; Claude's pin must survive until Claude actually reports.
-    prefs.reconcile(knownIDs: ["codex:primary"], settled: [.codex])
-    XCTAssertEqual(prefs.shownMetricIDs, ["claude:session", "codex:primary"])
+    prefs.reconcile(knownIDs: ["codex:window"], settled: [.codex])
+    XCTAssertEqual(prefs.shownMetricIDs, ["claude:session", "codex:window"])
   }
 
   func testReconcileKeepsAtLeastOnePin() {
     let defaults = makeDefaults()
     defaults.set(["codex:model:retired"], forKey: "shownMetricIDs")
-    defaults.set(true, forKey: "shownMetricIDs.namespaced")
     let prefs = Preferences(available: [.codex], defaults: defaults)
 
-    prefs.reconcile(knownIDs: ["codex:primary"], settled: [.codex])
-    XCTAssertEqual(prefs.shownMetricIDs, ["codex:primary"], "reconciling must never leave the menu bar with nothing pinned")
+    prefs.reconcile(knownIDs: ["codex:window"], settled: [.codex])
+    XCTAssertEqual(prefs.shownMetricIDs, ["codex:window"], "reconciling must never leave the menu bar with nothing pinned")
   }
 
   func testReconcileIsANoOpBeforeAnyProviderReports() {
     let defaults = makeDefaults()
     defaults.set(["codex:model:retired"], forKey: "shownMetricIDs")
-    defaults.set(true, forKey: "shownMetricIDs.namespaced")
     let prefs = Preferences(available: [.codex], defaults: defaults)
 
     prefs.reconcile(knownIDs: [], settled: [])
     XCTAssertEqual(prefs.shownMetricIDs, ["codex:model:retired"])
+  }
+}
+
+// MARK: - Codex plan shapes
+
+/// Codex plans differ in which rate-limit windows exist and which slot each arrives in. These
+/// decode the wire payload the way the provider does, so plans nobody here can sign in to are
+/// still covered.
+final class CodexWindowTests: XCTestCase {
+  private func metrics(_ json: String) throws -> [DisplayMetric] {
+    let envelope = try JSONDecoder().decode(CodexUsageProvider.Envelope.self, from: Data(json.utf8))
+    return CodexUsageProvider.metrics(from: try XCTUnwrap(envelope.result))
+  }
+
+  private func payload(_ limits: String) -> String { #"{"id":2,"result":{"rateLimits":{"# + limits + #"}}}"# }
+
+  /// A weekly-only plan: one window, named and glyphed as the long one.
+  func testWeeklyOnlyPlan() throws {
+    let result = try metrics(payload(#""primary":{"usedPercent":41,"windowDurationMins":10080,"resetsAt":2000000}"#))
+    XCTAssertEqual(result.map(\.title), ["Weekly (7-day)"])
+    XCTAssertEqual(result.map(\.id), ["codex:window"], "the id names the role, not the slot it arrived in")
+  }
+
+  /// A plan with both windows, short one in `secondary`.
+  func testShortWindowInSecondary() throws {
+    let result = try metrics(
+      payload(#""primary":{"usedPercent":41,"windowDurationMins":10080},"secondary":{"usedPercent":12,"windowDurationMins":300}"#))
+    XCTAssertEqual(result.map(\.title), ["Session (5-hour)", "Weekly (7-day)"], "shortest window first")
+  }
+
+  /// The same plan shape with the slots swapped. Titles, order and glyphs must not change, because
+  /// the slot carries no meaning — this is the case a weekly-only account cannot exercise.
+  func testShortWindowInPrimary() throws {
+    let result = try metrics(
+      payload(#""primary":{"usedPercent":12,"windowDurationMins":300},"secondary":{"usedPercent":41,"windowDurationMins":10080}"#))
+    XCTAssertEqual(result.map(\.title), ["Session (5-hour)", "Weekly (7-day)"], "order follows duration, not slot")
+    // Paired with the title rather than checked by position: a positional check passes if order
+    // and glyph are both wrong in the same direction.
+    let glyphs = Dictionary(uniqueKeysWithValues: result.map { ($0.title, $0.symbolName) })
+    XCTAssertEqual(glyphs["Session (5-hour)"], Provider.codex.symbol(for: .session), "a 5-hour limit must not wear the weekly glyph")
+    XCTAssertEqual(glyphs["Weekly (7-day)"], Provider.codex.symbol(for: .window))
+  }
+
+  /// A window with no stated duration must not be guessed at.
+  func testWindowWithoutADurationIsUnnamed() throws {
+    let result = try metrics(payload(#""primary":{"usedPercent":5}"#))
+    XCTAssertEqual(result.map(\.title), ["Usage limit"])
+    XCTAssertEqual(result.map(\.symbolName), [Provider.codex.symbol(for: .window)], "an unknown window is the long one")
   }
 }
 
@@ -189,7 +224,7 @@ final class KeychainTokenTests: XCTestCase {
           provider: "codex", displayName: "Codex", status: "ok", error: nil, updatedAt: updatedAt, rateLimitedUntil: nil,
           metrics: [
             MetricUsage(
-              id: "codex:primary", title: "Weekly (7-day)", usedPercent: 41, value: "41%", detail: "41% used", severity: "warning",
+              id: "codex:window", title: "Weekly (7-day)", usedPercent: 41, value: "41%", detail: "41% used", severity: "warning",
               resetsAt: Date(timeIntervalSince1970: 2_000_000))
           ])
       ])
@@ -200,7 +235,7 @@ final class KeychainTokenTests: XCTestCase {
   func testLastReadingIsShownBeforeAnyFetch() {
     let updatedAt = Date(timeIntervalSinceNow: -600)
     let model = UsageModel(
-      provider: StubProvider(provider: .codex) { snapshot("codex:primary") }, defaults: makeDefaults(),
+      provider: StubProvider(provider: .codex) { snapshot("codex:window") }, defaults: makeDefaults(),
       restoring: published(updatedAt: updatedAt))
 
     XCTAssertTrue(model.snapshot.hasData, "the stored reading should be on screen immediately")
@@ -216,8 +251,7 @@ final class KeychainTokenTests: XCTestCase {
   /// A reading with no timestamp is not worth showing: the panel would claim data of unknown age.
   func testReadingWithoutATimestampIsIgnored() {
     let model = UsageModel(
-      provider: StubProvider(provider: .codex) { snapshot("codex:primary") }, defaults: makeDefaults(), restoring: published(updatedAt: nil)
-    )
+      provider: StubProvider(provider: .codex) { snapshot("codex:window") }, defaults: makeDefaults(), restoring: published(updatedAt: nil))
     XCTAssertFalse(model.snapshot.hasData)
   }
 
@@ -343,7 +377,7 @@ final class KeychainTokenTests: XCTestCase {
     let fetched = Flag()
     let provider = StubProvider(provider: .codex) {
       fetched.set()
-      return snapshot("codex:primary")
+      return snapshot("codex:window")
     }
     let model = UsageModel(provider: provider, defaults: defaults)
     let wait = await model.refresh(trigger: "after-upgrade")
@@ -360,7 +394,7 @@ final class KeychainTokenTests: XCTestCase {
     let credentials = Box("token-a")
     let reject = Box(true)
     let provider = StubProvider(
-      provider: .codex, outcome: { if reject.value { throw UsageError.sessionExpired } else { return snapshot("codex:primary") } },
+      provider: .codex, outcome: { if reject.value { throw UsageError.sessionExpired } else { return snapshot("codex:window") } },
       credentials: credentials)
     let model = UsageModel(provider: provider, defaults: defaults)
 
@@ -398,7 +432,7 @@ final class KeychainTokenTests: XCTestCase {
 
   func testSuccessClearsBackoff() async {
     let defaults = makeDefaults()
-    let model = UsageModel(provider: StubProvider(provider: .codex) { snapshot("codex:primary") }, defaults: defaults)
+    let model = UsageModel(provider: StubProvider(provider: .codex) { snapshot("codex:window") }, defaults: defaults)
     let wait = await model.refresh(trigger: "test")
     XCTAssertGreaterThan(wait, 60, "a success returns the normal poll interval")
     XCTAssertNil(defaults.object(forKey: "nextAttemptAt.codex"))

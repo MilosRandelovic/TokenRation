@@ -56,7 +56,7 @@ enum Provider: String, CaseIterable, Sendable {
   var defaultMetricID: String {
     switch self {
     case .claude: metricID("session")
-    case .codex: metricID("primary")
+    case .codex: metricID("window")
     }
   }
 
