@@ -51,6 +51,10 @@ struct CodexUsageProvider: UsageProviding {
     let primary: Window?
     let secondary: Window?
     let credits: Credits?
+    /// Monthly credit cap, on plans that have one. Absent elsewhere.
+    let individualLimit: IndividualLimit?
+    /// True once a spend control has stopped further usage.
+    let spendControlReached: Bool?
 
     struct Window: Decodable, Sendable {
       let usedPercent: Double?
@@ -59,10 +63,53 @@ struct CodexUsageProvider: UsageProviding {
       let resetsAt: Double?
     }
 
+    /// A value that may arrive as a string or a number.
+    ///
+    /// The credit fields are documented as strings, but this projection is not schema-locked
+    /// and no account here can produce one to check. A mismatch on a single present field
+    /// would fail the whole payload, taking the windows that do work down with it, so both
+    /// forms are accepted.
+    struct Loose: Decodable, Sendable {
+      let text: String?
+      let number: Double?
+
+      init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(String.self) {
+          text = value
+          number = Double(value)
+        } else if let value = try? container.decode(Double.self) {
+          number = value
+          text = nil
+        } else {
+          text = nil
+          number = nil
+        }
+      }
+
+      /// What to show: the string as given, or the number without trailing noise.
+      var display: String? {
+        if let text { return text }
+        guard let number else { return nil }
+        return number == number.rounded() ? String(Int(number)) : String(number)
+      }
+    }
+
+    /// A monthly credit cap: consumed against a total, with a percentage and a reset.
+    struct IndividualLimit: Decodable, Sendable {
+      let limit: Loose?
+      let used: Loose?
+      let remainingPercent: Loose?
+      let resetsAt: Loose?
+    }
+
     struct Credits: Decodable, Sendable {
       let hasCredits: Bool?
       let unlimited: Bool?
       let balance: String?
+      /// Roughly how many more messages the balance covers, split by where they run.
+      let approxLocalMessages: Loose?
+      let approxCloudMessages: Loose?
     }
   }
 
@@ -83,13 +130,24 @@ struct CodexUsageProvider: UsageProviding {
         let role = kind(for: limit)
         metrics.append(window(limit, id: provider.metricID(role == .session ? "session" : "window"), kind: role, title: label(for: limit)))
       }
+      // A monthly credit cap behaves like Claude's extra usage: consumed against a total, so
+      // it gets a proportion and a reset rather than a bare number.
+      if let cap = main.individualLimit, let metric = spend(cap, reached: main.spendControlReached) { metrics.append(metric) }
       // Only show credits when the account actually has a balance to track.
       if let credits = main.credits, credits.hasCredits == true, let balance = credits.balance {
+        let unlimited = credits.unlimited == true
+        var detail = unlimited ? "Unlimited" : "\(balance) remaining"
+        // Approximate message counts say more than a credit figure whose unit is opaque.
+        let approximate = [
+          credits.approxLocalMessages?.display.map { "~\($0) local" }, credits.approxCloudMessages?.display.map { "~\($0) cloud" },
+        ].compactMap { $0 }
+        if !approximate.isEmpty { detail += " · " + approximate.joined(separator: ", ") + " msgs" }
         metrics.append(
           DisplayMetric(
             id: provider.metricID("credits"), provider: provider, title: "Credits", symbolName: provider.symbol(for: .money),
-            barText: credits.unlimited == true ? "∞" : balance, valueText: credits.unlimited == true ? "Unlimited" : "\(balance) remaining",
-            fraction: nil, severity: .normal, resetsAt: nil))
+            barText: unlimited ? "∞" : balance, valueText: detail, fraction: nil,
+            // A balance carries no denominator, so exhaustion can only come from the flag.
+            severity: main.spendControlReached == true ? .critical : .normal, resetsAt: nil))
       }
     }
 
@@ -118,6 +176,19 @@ struct CodexUsageProvider: UsageProviding {
     case ..<80: .warning
     default: .critical
     }
+  }
+
+  /// A monthly credit cap as a metric. Skipped unless a percentage is present: without one
+  /// there is no proportion to draw, and inventing one would misreport spend.
+  private static func spend(_ cap: Bucket.IndividualLimit, reached: Bool?) -> DisplayMetric? {
+    guard let remaining = cap.remainingPercent?.number else { return nil }
+    let used = Int(min(max(100 - remaining, 0), 100).rounded())
+    var detail = "\(used)% used"
+    if let usedText = cap.used?.display, let limitText = cap.limit?.display { detail = "\(usedText) / \(limitText) · \(used)%" }
+    return DisplayMetric(
+      id: Provider.codex.metricID("spend"), provider: .codex, title: "Monthly credits", symbolName: Provider.codex.symbol(for: .money),
+      barText: "\(used)%", valueText: detail, fraction: Double(used) / 100, severity: reached == true ? .critical : severity(percent: used),
+      resetsAt: cap.resetsAt?.number.map { Date(timeIntervalSince1970: $0) })
   }
 
   /// Whether a window is a short rolling allowance or a long one, judged by its length rather

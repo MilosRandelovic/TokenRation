@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.6]
+
+- Codex monthly credit caps are shown, on plans that have one. The cap carries a used/total pair,
+  a percentage and a reset, so it reads like Claude's extra usage rather than a bare figure.
+- A credit balance now reports the approximate local and cloud messages it covers, and turns
+  critical when a spend control has stopped usage — a balance alone has no total to measure against.
+- Credit and cap fields are accepted as either strings or numbers, so an unexpected shape cannot
+  fail the whole payload and take the working windows with it.
+
 ## [0.1.5]
 
 - Codex rate-limit windows are named, ordered and iconed by their own duration rather than by
