@@ -180,6 +180,64 @@ final class CodexWindowTests: XCTestCase {
     XCTAssertEqual(glyphs["Weekly (7-day)"], Provider.codex.symbol(for: .window))
   }
 
+  /// A monthly credit cap is the Codex analogue of Claude's extra usage: it has a total, so it
+  /// gets a proportion, a reset and a severity rather than a bare number.
+  func testMonthlyCreditCap() throws {
+    let result = try metrics(
+      payload(
+        #""primary":{"usedPercent":10,"windowDurationMins":10080},"#
+          + #""individualLimit":{"limit":"1000","used":"920","remainingPercent":8,"resetsAt":2000000}"#))
+    let cap = try XCTUnwrap(result.first { $0.id == "codex:spend" })
+    XCTAssertEqual(cap.title, "Monthly credits")
+    XCTAssertEqual(cap.barText, "92%", "used is the complement of remaining")
+    XCTAssertEqual(cap.valueText, "920 / 1000 · 92%")
+    XCTAssertEqual(cap.fraction, 0.92)
+    XCTAssertEqual(cap.severity, .critical, "92% used must not read as normal")
+    XCTAssertNotNil(cap.resetsAt, "a monthly cap resets, unlike a credit balance")
+  }
+
+  /// The documented types say string; a projection sending numbers must not break the payload.
+  func testCapAcceptsNumbersOrStrings() throws {
+    let asNumbers = try metrics(payload(#""individualLimit":{"limit":1000,"used":920,"remainingPercent":8}"#))
+    XCTAssertEqual(asNumbers.first?.valueText, "920 / 1000 · 92%", "numeric fields render the same as strings")
+    let asStrings = try metrics(payload(#""individualLimit":{"limit":"1000","used":"920","remainingPercent":"8"}"#))
+    XCTAssertEqual(asStrings.first?.valueText, "920 / 1000 · 92%")
+  }
+
+  /// A cap with no percentage cannot be drawn as a proportion, so it is not shown at all.
+  func testCapWithoutAPercentIsSkipped() throws {
+    let result = try metrics(payload(#""individualLimit":{"limit":"1000","used":"920"}"#))
+    XCTAssertFalse(result.contains { $0.id == "codex:spend" })
+  }
+
+  /// A window payload with a cap present must still decode the windows — the reason both scalar
+  /// forms are accepted is that a mismatch here would take the working rows down too.
+  func testWindowsSurviveAnUnexpectedCapShape() throws {
+    let result = try metrics(
+      payload(#""primary":{"usedPercent":10,"windowDurationMins":10080},"individualLimit":{"limit":{"nested":true}}"#))
+    XCTAssertEqual(result.map(\.title), ["Weekly (7-day)"], "the weekly window still reports")
+  }
+
+  /// Credits carry approximate message counts, which mean more than an opaque credit figure.
+  func testCreditsShowApproximateMessages() throws {
+    let result = try metrics(payload(#""credits":{"hasCredits":true,"balance":"420","approxLocalMessages":80,"approxCloudMessages":12}"#))
+    let credits = try XCTUnwrap(result.first { $0.id == "codex:credits" })
+    XCTAssertEqual(credits.valueText, "420 remaining · ~80 local, ~12 cloud msgs")
+    XCTAssertNil(credits.fraction, "a balance has no denominator, so no bar")
+  }
+
+  /// A balance cannot signal exhaustion by itself; the spend-control flag is the only signal.
+  func testSpendControlReachedMakesCreditsCritical() throws {
+    let result = try metrics(payload(#""credits":{"hasCredits":true,"balance":"0"},"spendControlReached":true"#))
+    XCTAssertEqual(result.first { $0.id == "codex:credits" }?.severity, .critical)
+  }
+
+  /// An account without credits shows no credits row at all.
+  func testNoCreditsMeansNoRow() throws {
+    let result = try metrics(payload(#""credits":{"hasCredits":false,"balance":"0"}"#))
+    XCTAssertFalse(result.contains { $0.id == "codex:credits" })
+  }
+
   /// A window with no stated duration must not be guessed at.
   func testWindowWithoutADurationIsUnnamed() throws {
     let result = try metrics(payload(#""primary":{"usedPercent":5}"#))
