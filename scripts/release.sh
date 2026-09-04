@@ -112,7 +112,7 @@ fi
 cat <<NEXT
 
 Release flow:
-  1. Create a GitHub release tagged v$SHORT_VERSION on MilosRandelovic/TokenRation and
+  1. Create a GitHub release tagged v$SHORT_VERSION on MilosRandelovic/tokenration and
    upload $ZIP to it.
   2. Commit & push the updated cask in the homebrew-tokenration tap.
 NEXT
