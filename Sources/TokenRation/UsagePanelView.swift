@@ -29,8 +29,15 @@ struct UsagePanelView: View {
   let prefs: Preferences
   let updates: UpdateChecker
   @State private var showingAbout = false
+  /// Drives the relative times below. SwiftUI only redraws when state changes, and a provider
+  /// that is held off produces none for hours — so "resets in 2h" would sit frozen at whatever
+  /// it read when the panel last drew, disagreeing with the menu bar beside it.
+  @State private var now = Date()
+  private let clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
-  var body: some View { Group { if showingAbout { aboutView } else { mainView } }.padding(14).frame(width: 300) }
+  var body: some View {
+    Group { if showingAbout { aboutView } else { mainView } }.padding(14).frame(width: 300).onReceive(clock) { now = $0 }
+  }
 
   /// The model whose metrics are on screen.
   private var model: UsageModel? { providers.selectedModel }
@@ -160,7 +167,8 @@ struct UsagePanelView: View {
   }
 
   private func caption(_ metric: DisplayMetric) -> String {
-    if let resetsAt = metric.resetsAt, resetsAt.timeIntervalSinceNow > 0 { return "resets in \(ResetText.short(until: resetsAt))" }
+    // Measured against `now` rather than the wall clock, so the text refreshes with the tick.
+    if let resetsAt = metric.resetsAt, resetsAt > now { return "resets in \(ResetText.short(until: resetsAt, from: now))" }
     return metric.valueText  // e.g. spend's "$246.40 / $1,000.00 · 25%"
   }
 

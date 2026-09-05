@@ -33,6 +33,7 @@ private struct PanelRoot: View {
   private var globalMonitor: Any?
   private var localMonitor: Any?
   private var trackTimer: Timer?
+  private var countdownTimer: Timer?
   private var animationDeadline = Date.distantPast
   private var spinnerTimer: Timer?
   private var spinnerIndex = 0
@@ -62,6 +63,9 @@ private struct PanelRoot: View {
       self, selector: #selector(statusButtonFrameChanged), name: NSView.frameDidChangeNotification, object: statusItem.button)
 
     providers.onChange = { [weak self] in self?.render() }
+    // The secondary line counts down, so it drifts between readings — a poll is five minutes
+    // apart, and a held-off provider can go hours without one. Redraw on its own cadence.
+    countdownTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in Task { @MainActor in self?.render() } }
     prefs.onChange = { [weak self] in self?.render() }
     render()
   }
@@ -313,10 +317,14 @@ private struct PanelRoot: View {
       ])
   }
 
-  /// Secondary line: reset countdown for windows, or the percentage for spend.
+  /// Secondary line: reset countdown for windows, or the percentage for metrics that have no
+  /// reset at all, such as spend.
+  ///
+  /// A window whose reset has already passed gets neither: the percentage is already the line
+  /// above, so falling back to it would print the same value twice.
   private func menuSecondary(for metric: DisplayMetric?) -> String {
     guard let metric else { return "" }
-    if let resetsAt = metric.resetsAt, resetsAt.timeIntervalSinceNow > 0 { return ResetText.short(until: resetsAt) }
+    if let resetsAt = metric.resetsAt { return resetsAt.timeIntervalSinceNow > 0 ? ResetText.short(until: resetsAt) : "" }
     if let fraction = metric.fraction { return "\(Int((fraction * 100).rounded()))%" }
     return ""
   }

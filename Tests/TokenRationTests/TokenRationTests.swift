@@ -140,6 +140,64 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   }
 }
 
+// MARK: - Token expiry
+
+final class TokenExpiryTests: XCTestCase {
+  private func secret(expiresAt: String) -> String {
+    #"{"claudeAiOauth":{"accessToken":"sk-test","refreshToken":"r","expiresAt":"# + expiresAt + #"}}"#
+  }
+
+  /// An expired token is still a token, and the endpoint answers 429 rather than 401 — so sending
+  /// one reads as a rate limit and buries a sign-in problem under hours of backoff.
+  func testExpiredTokenIsRejectedBeforeUse() {
+    let past = (Date().timeIntervalSince1970 - 3600) * 1000
+    XCTAssertThrowsError(try KeychainToken.token(fromSecret: secret(expiresAt: String(past)))) { error in
+      guard case UsageError.sessionExpired = error else { return XCTFail("expected sessionExpired, got \(error)") }
+    }
+  }
+
+  func testUnexpiredTokenIsReturned() throws {
+    let future = (Date().timeIntervalSince1970 + 3600) * 1000
+    XCTAssertEqual(try KeychainToken.token(fromSecret: secret(expiresAt: String(future))), "sk-test")
+  }
+
+  /// No expiry recorded means the token is used: refusing it would be worse than trying it.
+  func testMissingExpiryIsNotTreatedAsExpired() throws {
+    let secret = #"{"claudeAiOauth":{"accessToken":"sk-test","refreshToken":"r"}}"#
+    XCTAssertEqual(try KeychainToken.token(fromSecret: secret), "sk-test")
+  }
+
+  /// The CLI writes milliseconds. Seconds are read too, so a change of unit cannot make a valid
+  /// token look decades expired.
+  func testSecondsAndMillisecondsBothParse() {
+    let seconds = Date().timeIntervalSince1970 + 3600
+    XCTAssertEqual(KeychainToken.expiryDate(seconds)?.timeIntervalSince1970 ?? 0, seconds, accuracy: 1)
+    XCTAssertEqual(KeychainToken.expiryDate(seconds * 1000)?.timeIntervalSince1970 ?? 0, seconds, accuracy: 1)
+    XCTAssertNil(KeychainToken.expiryDate(0), "a zero expiry is the CLI's signed-out blob, not 1970")
+    XCTAssertNil(KeychainToken.expiryDate(nil))
+  }
+}
+
+// MARK: - Relative times
+
+final class ResetTextTests: XCTestCase {
+  /// Measured against a passed-in moment, so a ticking view refreshes without new data.
+  func testCountdownFollowsTheReferenceDate() {
+    let resets = Date(timeIntervalSince1970: 10_000)
+    let early = ResetText.short(until: resets, from: Date(timeIntervalSince1970: 10_000 - 7200))
+    let later = ResetText.short(until: resets, from: Date(timeIntervalSince1970: 10_000 - 600))
+    XCTAssertEqual(early, "2h")
+    XCTAssertEqual(later, "10m")
+    XCTAssertNotEqual(early, later, "the same reset must read differently as time passes")
+  }
+
+  /// A reset already in the past reads as nothing, never as a negative or a wrapped duration.
+  func testPastResetIsEmpty() {
+    let resets = Date(timeIntervalSince1970: 10_000)
+    XCTAssertEqual(ResetText.short(until: resets, from: Date(timeIntervalSince1970: 20_000)), "0m", "clamped, never negative")
+  }
+}
+
 // MARK: - Codex plan shapes
 
 /// Codex plans differ in which rate-limit windows exist and which slot each arrives in. These

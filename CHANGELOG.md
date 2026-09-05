@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.1.8]
+
+- An expired access token is reported as an expired session instead of being sent. The endpoint
+  answers 429 to a stale token, so the app used to call it a rate limit and back off for hours over
+  a sign-in problem — while still making the requests that earn a real throttle.
+- A menu-bar metric whose reset has already passed no longer repeats its own percentage on the
+  second line.
+- Reset countdowns refresh on their own half-minute tick in both the panel and the menu bar. They
+  are relative, so previously they froze at whatever the view last drew — which could be hours
+  earlier for a provider that is held off, and left the panel disagreeing with the menu bar.
+
 ## [0.1.7]
 
 - The repository moved to `MilosRandelovic/tokenration`. The update check and the About view's
