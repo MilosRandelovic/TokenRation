@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.7]
+
+- The repository moved to `MilosRandelovic/tokenration`. The update check and the About view's
+  link now address it directly rather than relying on GitHub's redirect from the old name.
+
 ## [0.1.6]
 
 - Codex monthly credit caps are shown, on plans that have one. The cap carries a used/total pair,
