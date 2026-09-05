@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.0]
+
+- Releases are signed with a Developer ID certificate, notarized and stapled, so macOS opens the
+  app without a Gatekeeper prompt and no quarantine flag has to be cleared by hand.
+
 ## [0.1.8]
 
 - An expired access token is reported as an expired session instead of being sent. The endpoint
