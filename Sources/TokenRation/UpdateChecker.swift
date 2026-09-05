@@ -13,7 +13,7 @@ import UserNotifications
   /// Latest released version (e.g. "0.1.2"), if a check has ever succeeded.
   private(set) var latestVersion: String?
 
-  @ObservationIgnored private let repository = "MilosRandelovic/TokenRation"
+  @ObservationIgnored private let repository = "MilosRandelovic/tokenration"
   /// Minimum spacing between requests. GitHub allows 60 an hour unauthenticated; this uses two.
   @ObservationIgnored private static let checkInterval: TimeInterval = 30 * 60
   @ObservationIgnored private let defaults: UserDefaults

@@ -219,7 +219,7 @@ struct UsagePanelView: View {
         "Your Claude and Codex usage in the menu bar.\n\n" + "No separate sign-in: it reuses the credentials the Claude Code and Codex "
           + "CLIs already store, and never changes them."
       ).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-      Link("github.com/MilosRandelovic/TokenRation", destination: URL(string: "https://github.com/MilosRandelovic/TokenRation")!).font(
+      Link("github.com/MilosRandelovic/tokenration", destination: URL(string: "https://github.com/MilosRandelovic/tokenration")!).font(
         .caption)
       Divider()
       HStack {
