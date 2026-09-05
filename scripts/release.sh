@@ -47,6 +47,13 @@ else
   echo "==> Signing identity: $IDENTITY"
 fi
 
+# A distributable build starts from nothing. Incremental output is right for a dev loop, but
+# what people install should not be linked against objects left by an earlier configuration —
+# and a stale link is hard to spot, since the build reports success either way. Costs about
+# nine seconds here, and nothing in CI, where the cache is empty regardless.
+echo "==> Cleaning previous build output"
+rm -rf .build
+
 assemble_bundle
 
 # 2. Sign with hardened runtime + secure timestamp (both required for notarization).
