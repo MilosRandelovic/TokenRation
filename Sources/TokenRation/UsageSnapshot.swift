@@ -81,8 +81,11 @@ struct UsageSnapshot: Sendable, Equatable {
 /// agree. `RelativeDateTimeFormatter` is unsuitable here: it rounds to a single unit ("1 hr"),
 /// hiding the minutes.
 enum ResetText {
-  /// - Parameter from: the moment to measure against. A view driven by a timer passes its own
-  ///   tick, so the text changes when the tick does rather than only when the data does.
+  /// - Parameters:
+  ///   - date: when the window resets.
+  ///   - reference: the moment to measure against. A view driven by a timer passes its own
+  ///     tick, so the text changes when the tick does rather than only when the data does.
+  /// - Returns: an abbreviated duration such as "2h 13m", or "0m" once the reset has passed.
   static func short(until date: Date, from reference: Date = Date()) -> String {
     let formatter = DateComponentsFormatter()
     formatter.allowedUnits = [.day, .hour, .minute]
