@@ -1,6 +1,9 @@
 # TokenRation Makefile
 
-.PHONY: all build test format icon app release clean help
+.PHONY: all build test format lint icon app release clean help
+
+# The sources both format and lint operate on, named once so the two cannot drift apart.
+FORMAT_PATHS = Package.swift Sources Tests
 
 # Default target
 all: build
@@ -15,7 +18,13 @@ test:
 
 # Format the sources in place
 format:
-	swift format --in-place --recursive Package.swift Sources Tests
+	swift format --in-place --recursive $(FORMAT_PATHS)
+
+# The check CI runs. --strict is what makes a finding fail: plain `lint` reports problems and
+# still exits 0. Not every finding is fixable by `make format` — the documentation-comment
+# rules need editing by hand.
+lint:
+	swift format lint --strict --recursive $(FORMAT_PATHS)
 
 # Regenerate Resources/AppIcon.icns from scripts/make-icon.swift
 icon:
@@ -39,6 +48,7 @@ help:
 	@echo "  build    - Build the application"
 	@echo "  test     - Run the test suite"
 	@echo "  format   - Format the sources in place"
+	@echo "  lint     - Check formatting and lint rules (what CI runs)"
 	@echo "  icon     - Regenerate the app icon"
 	@echo "  app      - Build TokenRation.app (ad-hoc signed, local use)"
 	@echo "  release  - Build a distributable release and update the cask"

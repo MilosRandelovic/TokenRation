@@ -32,6 +32,14 @@ enum KeychainToken {
     return try token(fromSecret: text)
   }
 
+  /// Interprets the stored expiry, which the CLI writes in epoch milliseconds. Seconds are
+  /// accepted too, so a change of unit degrades to "no expiry known" rather than treating a
+  /// valid token as expired.
+  static func expiryDate(_ value: Double?) -> Date? {
+    guard let value, value > 0 else { return nil }
+    return Date(timeIntervalSince1970: value > 1_000_000_000_000 ? value / 1000 : value)
+  }
+
   /// A short digest of the current token: enough to tell that it changed, not enough to use.
   static func fingerprint(service: String) throws -> String {
     let token = try read(service: service)
@@ -50,12 +58,21 @@ enum KeychainToken {
       throw UsageError.notSignedIn
     }
     guard !blob.claudeAiOauth.accessToken.isEmpty else { throw UsageError.notSignedIn }
+    // An expired token is still a token: the endpoint answers 429 rather than 401, so
+    // sending one anyway reads as a rate limit and buries a sign-in problem under hours of
+    // backoff. The expiry sits beside the token, so there is no reason to find out the hard
+    // way. The CLI refreshes it; this app never does.
+    if let expiry = expiryDate(blob.claudeAiOauth.expiresAt), expiry <= Date() { throw UsageError.sessionExpired }
     return blob.claudeAiOauth.accessToken
   }
 
-  /// The stored secret is a JSON blob: { "claudeAiOauth": { "accessToken": "..." } }
+  /// The stored secret is a JSON blob: { "claudeAiOauth": { "accessToken": ..., "expiresAt": ... } }
   private struct CredentialsBlob: Decodable {
     let claudeAiOauth: OAuth
-    struct OAuth: Decodable { let accessToken: String }
+    struct OAuth: Decodable {
+      let accessToken: String
+      /// Epoch milliseconds, as the CLI writes them.
+      let expiresAt: Double?
+    }
   }
 }
