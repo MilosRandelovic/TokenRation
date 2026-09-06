@@ -33,6 +33,8 @@ struct UsagePanelView: View {
   /// that is held off produces none for hours — so "resets in 2h" would sit frozen at whatever
   /// it read when the panel last drew, disagreeing with the menu bar beside it.
   @State private var now = Date()
+  /// Accumulated rotation of the refresh glyph — one turn added per fetch.
+  @State private var spin = 0.0
   private let clock = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
   var body: some View {
@@ -157,11 +159,23 @@ struct UsagePanelView: View {
         Text("Updated \(model.snapshot.updatedAt, format: .dateTime.hour().minute())").font(.caption).foregroundStyle(.secondary)
       }
       Spacer()
+      let refreshing = model?.isRefreshing == true
+      // A refresh asked for during a hold is refused by the guards in `refresh`, so offering it
+      // would be a button that accepts the click and does nothing — which reads as a broken
+      // control rather than as a deliberate wait. The panel already gives the reason above; the
+      // tooltip gives the timing.
+      let heldUntil = model?.heldUntil
       Button {
         Task { await model?.refresh(trigger: "manual") }
       } label: {
-        Image(systemName: "arrow.clockwise")
-      }.buttonStyle(.borderless).disabled(model?.isRefreshing ?? true).help("Refresh now")
+        Image(systemName: "arrow.clockwise").rotationEffect(.degrees(spin))
+      }.buttonStyle(.borderless)
+        // One finite turn each time a fetch begins. A repeating animation has to be cancelled
+        // when the fetch ends, and one that fails to cancel spins forever; accumulating the angle
+        // leaves no animation running and needs no snap back to zero.
+        .onChange(of: refreshing) { _, started in if started { withAnimation(.easeInOut(duration: 0.6)) { spin += 360 } } }.disabled(
+          refreshing || heldUntil != nil
+        ).help(refreshHelp(refreshing: refreshing, heldUntil: heldUntil))
       Button("Quit") { NSApplication.shared.terminate(nil) }
     }
   }
@@ -200,6 +214,14 @@ struct UsagePanelView: View {
   }
 
   /// " · retry in 12m" while rate-limited, else "".
+  /// Says why the refresh button is unavailable, since a disabled control explains nothing on
+  /// its own. Measured against the ticking clock, so a hover shows the time left now.
+  private func refreshHelp(refreshing: Bool, heldUntil: Date?) -> String {
+    if refreshing { return "Refreshing…" }
+    guard let heldUntil else { return "Refresh now" }
+    return "Next attempt in \(ResetText.short(until: heldUntil, from: now))"
+  }
+
   private var retryText: String {
     guard let until = model?.rateLimitedUntil, until.timeIntervalSinceNow > 0 else { return "" }
     let formatter = DateComponentsFormatter()

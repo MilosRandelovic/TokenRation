@@ -6,6 +6,9 @@
   its own glyph. Being throttled does not raise it: waiting is the whole remedy there, while an
   expired session needs a sign-in. The state is read from the credentials at start-up, so a
   relaunch does not hide it behind a restored backoff until the next attempt fails.
+- The refresh button turns while a fetch is in flight, and is disabled while a provider is
+  held off — with a tooltip saying when the next attempt is allowed. Previously it accepted
+  the click and did nothing, which reads as a broken control rather than a deliberate wait.
 - A window whose reset has passed keeps showing the time that was remaining when its reading was
   taken, rather than an empty line. The figure is frozen, alongside a percentage from that same
   reading.

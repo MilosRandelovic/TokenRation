@@ -9,14 +9,14 @@ private struct StubProvider: UsageProviding {
   let provider: Provider
   let outcome: @Sendable () throws -> UsageSnapshot
   /// Stands in for credentials that are missing or expired without an attempt being made.
-  var credentialsUnusable: Bool = false
+  var credentialFault: UsageError? = nil
   /// Stands in for the credentials on disk; read through a box so a test can swap them
   /// mid-flight the way the CLI rewriting the Keychain does.
   var credentials: Box<String>? = nil
 
   func fetch() async throws -> UsageSnapshot { try outcome() }
   func credentialFingerprint() async -> String? { credentials?.value }
-  func credentialsNeedAttention() async -> Bool { credentialsUnusable }
+  func credentialProblem() async -> UsageError? { credentialFault }
 }
 
 /// A value a `@Sendable` provider can read and a test can change.
@@ -143,6 +143,51 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   }
 }
 
+// MARK: - Holds
+
+@MainActor final class HeldUntilTests: XCTestCase {
+  /// The UI needs the effective deadline, not just the 429 one: a hold after an auth failure
+  /// refuses a manual refresh exactly the same way.
+  func testAuthHoldIsReported() async {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { throw UsageError.sessionExpired }, defaults: makeDefaults(), restoring: nil)
+    XCTAssertNil(model.heldUntil, "nothing has failed yet")
+
+    await model.refresh(trigger: "test")
+    XCTAssertNotNil(model.heldUntil, "an auth hold refuses a refresh, so it must be visible to the UI")
+    XCTAssertNil(model.rateLimitedUntil, "and it is not a throttle")
+  }
+
+  func testRateLimitHoldIsReported() async {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { throw UsageError.rateLimited(retryAfter: 600) }, defaults: makeDefaults(), restoring: nil)
+    await model.refresh(trigger: "test")
+    XCTAssertNotNil(model.heldUntil)
+  }
+
+  /// A deadline in the past is not a hold: the button must come back when the wait is over.
+  func testExpiredDeadlineIsNotAHold() {
+    let defaults = makeDefaults()
+    defaults.set(Date(timeIntervalSinceNow: -60), forKey: "nextAttemptAt.codex")
+    let model = UsageModel(provider: StubProvider(provider: .codex) { snapshot("codex:window") }, defaults: defaults, restoring: nil)
+    XCTAssertNil(model.heldUntil)
+  }
+
+  /// The minimum gap refuses a manual refresh just as a backoff does — including right after a
+  /// successful poll — so the button must be disabled then too.
+  func testMinimumGapCountsAsAHold() async {
+    let model = UsageModel(provider: StubProvider(provider: .codex) { snapshot("codex:window") }, defaults: makeDefaults(), restoring: nil)
+    await model.refresh(trigger: "test")
+    XCTAssertNil(model.rateLimitedUntil, "nothing failed")
+    XCTAssertNotNil(model.heldUntil, "a refresh inside the gap is refused, so it is a hold")
+  }
+
+  func testNoHoldWhenNothingHasFailed() {
+    let model = UsageModel(provider: StubProvider(provider: .codex) { snapshot("codex:window") }, defaults: makeDefaults(), restoring: nil)
+    XCTAssertNil(model.heldUntil)
+  }
+}
+
 // MARK: - Attention state
 
 @MainActor final class NeedsSignInTests: XCTestCase {
@@ -167,12 +212,13 @@ private func snapshot(_ id: String) -> UsageSnapshot {
   /// the next attempt, up to a quarter of an hour later.
   func testCredentialStateIsAskedForNotWaitedFor() async {
     let model = UsageModel(
-      provider: StubProvider(provider: .codex, outcome: { snapshot("codex:window") }, credentialsUnusable: true), defaults: makeDefaults(),
-      restoring: nil)
+      provider: StubProvider(provider: .codex, outcome: { snapshot("codex:window") }, credentialFault: UsageError.sessionExpired),
+      defaults: makeDefaults(), restoring: nil)
     XCTAssertFalse(model.needsSignIn, "nothing has been asked yet")
 
     await model.refreshCredentialState()
     XCTAssertTrue(model.needsSignIn, "the credentials answer without an attempt being made")
+    XCTAssertEqual(model.lastError, UsageError.sessionExpired.errorDescription, "the panel needs the reason, not just the menu bar's glyph")
   }
 
   /// And usable credentials clear it, so signing in while held off drops the warning.

@@ -105,9 +105,12 @@ import UsageState
   /// this the menu bar would show stale numbers under a normal glyph until the next attempt
   /// failed, which can be a quarter of an hour away.
   func refreshCredentialState() async {
-    let needed = await provider.credentialsNeedAttention()
-    guard needed != needsSignIn else { return }
-    needsSignIn = needed
+    let problem = await provider.credentialProblem()
+    // Only set the message, never clear one: an unrelated failure — a throttle, a bad response
+    // — is still the last thing that actually happened, and a successful fetch clears it anyway.
+    if let problem { lastError = problem.errorDescription }
+    guard (problem != nil) != needsSignIn else { return }
+    needsSignIn = problem != nil
     onChange?()
   }
 
@@ -179,6 +182,21 @@ import UsageState
   }
 
   /// True when the last reading is old enough to be worth refreshing on demand.
+  /// When the next attempt is allowed, or nil when one may be made now.
+  ///
+  /// `rateLimitedUntil` covers only the 429 case; a hold after an auth failure or a general
+  /// error is just as binding, and a refresh asked for during either is refused. The UI needs
+  /// the effective deadline so it can stop offering an action that cannot happen.
+  var heldUntil: Date? {
+    // All three refusal paths in `refresh`, not just the throttle: an auth or error backoff
+    // binds the same way, and so does the minimum gap since the last attempt — including one
+    // that succeeded. Miss any of them and the button takes a click it cannot act on.
+    let gapEnds = lastAttemptAt.map { $0.addingTimeInterval(Self.minimumGap) }
+    let deadline = [nextAttemptAt, rateLimitedUntil, gapEnds].compactMap { $0 }.max()
+    guard let deadline, deadline > Date() else { return nil }
+    return deadline
+  }
+
   func isStale(olderThan age: TimeInterval = 60) -> Bool { Date().timeIntervalSince(snapshot.updatedAt) > age }
 
   /// Attempt one fetch. Returns how many seconds to wait before the next attempt.
