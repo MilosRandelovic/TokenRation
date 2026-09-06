@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1]
+
+- Menu-bar segments keep a common baseline. A window whose reset has passed has no second line,
+  and its percentage used to centre itself while neighbouring segments stayed on the two-line
+  baseline.
+
 ## [1.0.0]
 
 - Releases are signed with a Developer ID certificate, notarized and stapled, so macOS opens the

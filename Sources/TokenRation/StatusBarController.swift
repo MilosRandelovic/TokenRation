@@ -278,6 +278,10 @@ private struct PanelRoot: View {
 
     let pSize = primary.size()
     let sSize = secondary.size()
+    // The second line's height is reserved whether or not it has text. A window whose reset has
+    // passed has nothing to say there, and without the reservation that segment's percentage
+    // would centre itself while its neighbours sat on the two-line baseline.
+    let secondaryHeight: CGFloat = 9
     let textWidth = max(pSize.width, sSize.width)
     let symbolWidth = symbol?.size.width ?? 0
     let symbolGap: CGFloat = symbol == nil ? 0 : 3
@@ -291,9 +295,9 @@ private struct PanelRoot: View {
       symbol.draw(in: NSRect(x: x, y: y, width: symbol.size.width, height: symbol.size.height))
       x += symbolWidth + symbolGap
     }
-    let bottom = ((height - (pSize.height + sSize.height)) / 2).rounded()
-    secondary.draw(in: NSRect(x: x, y: bottom, width: textWidth, height: sSize.height))
-    primary.draw(in: NSRect(x: x, y: bottom + sSize.height, width: textWidth, height: pSize.height))
+    let bottom = ((height - (pSize.height + secondaryHeight)) / 2).rounded()
+    secondary.draw(in: NSRect(x: x, y: bottom, width: textWidth, height: secondaryHeight))
+    primary.draw(in: NSRect(x: x, y: bottom + secondaryHeight, width: textWidth, height: pSize.height))
     image.unlockFocus()
     return image
   }
