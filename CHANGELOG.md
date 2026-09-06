@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.0.1]
+
+- A provider whose credentials have lapsed shows a warning triangle in the menu bar in place of
+  its own glyph. Being throttled does not raise it: waiting is the whole remedy there, while an
+  expired session needs a sign-in. The state is read from the credentials at start-up, so a
+  relaunch does not hide it behind a restored backoff until the next attempt fails.
+- The refresh button turns while a fetch is in flight, and is disabled while a provider is
+  held off — with a tooltip saying when the next attempt is allowed. Previously it accepted
+  the click and did nothing, which reads as a broken control rather than a deliberate wait.
+- A window whose reset has passed keeps showing the time that was remaining when its reading was
+  taken, rather than an empty line. The figure is frozen, alongside a percentage from that same
+  reading.
+- Menu-bar segments keep a common baseline, so a segment without a second line no longer centres
+  its percentage while its neighbours sit on the two-line baseline.
+
 ## [1.0.0]
 
 - Releases are signed with a Developer ID certificate, notarized and stapled, so macOS opens the

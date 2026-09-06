@@ -13,6 +13,15 @@ struct ClaudeUsageProvider: UsageProviding {
   /// as a change and clears the hold immediately instead of waiting out the auth interval.
   func credentialFingerprint() async -> String? { (try? KeychainToken.fingerprint(service: keychainService)) ?? "none" }
 
+  /// Reads the credential the way a fetch would and reports what would refuse it. No request is
+  /// made: an expired or missing token is visible in the Keychain itself.
+  func credentialProblem() async -> UsageError? {
+    do {
+      _ = try KeychainToken.read(service: keychainService)
+      return nil
+    } catch let error as UsageError { return error } catch { return .notSignedIn }
+  }
+
   func fetch() async throws -> UsageSnapshot {
     let token = try KeychainToken.read(service: keychainService)
 
