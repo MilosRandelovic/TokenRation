@@ -2,9 +2,15 @@
 
 ## [1.0.1]
 
-- Menu-bar segments keep a common baseline. A window whose reset has passed has no second line,
-  and its percentage used to centre itself while neighbouring segments stayed on the two-line
-  baseline.
+- A provider whose credentials have lapsed shows a warning triangle in the menu bar in place of
+  its own glyph. Being throttled does not raise it: waiting is the whole remedy there, while an
+  expired session needs a sign-in. The state is read from the credentials at start-up, so a
+  relaunch does not hide it behind a restored backoff until the next attempt fails.
+- A window whose reset has passed keeps showing the time that was remaining when its reading was
+  taken, rather than an empty line. The figure is frozen, alongside a percentage from that same
+  reading.
+- Menu-bar segments keep a common baseline, so a segment without a second line no longer centres
+  its percentage while its neighbours sit on the two-line baseline.
 
 ## [1.0.0]
 

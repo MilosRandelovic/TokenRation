@@ -15,6 +15,10 @@ import UsageState
 @Observable @MainActor final class UsageModel {
   private(set) var snapshot: UsageSnapshot = .placeholder
   private(set) var lastError: String?
+  /// True when the last attempt failed for a reason only a sign-in can fix. Distinct from
+  /// being throttled or offline, where waiting is the whole remedy — so the menu bar can ask
+  /// for attention in one case and stay quiet in the other.
+  private(set) var needsSignIn = false
   private(set) var isRefreshing = false
   /// Set while the usage endpoint is throttling us; the date is when we'll next retry.
   private(set) var rateLimitedUntil: Date?
@@ -95,6 +99,18 @@ import UsageState
     startNetworkMonitor()
   }
 
+  /// Ask the provider whether its credentials are usable, and reflect that immediately.
+  ///
+  /// Called at start-up because a restored backoff carries the wait but not the reason: without
+  /// this the menu bar would show stale numbers under a normal glyph until the next attempt
+  /// failed, which can be a quarter of an hour away.
+  func refreshCredentialState() async {
+    let needed = await provider.credentialsNeedAttention()
+    guard needed != needsSignIn else { return }
+    needsSignIn = needed
+    onChange?()
+  }
+
   /// Log with the provider name, so a two-provider log stays readable.
   private func log(_ message: String) { Log.write("[\(source.rawValue)] \(message)") }
 
@@ -143,6 +159,8 @@ import UsageState
   func start() {
     guard loopTask == nil else { return }
     log("poll loop started")
+    // Independent of the poll loop, which may be held off for a long time before it runs.
+    Task { await refreshCredentialState() }
     loopTask = Task { [weak self] in
       while !Task.isCancelled {
         guard let self else { return }
@@ -226,6 +244,7 @@ import UsageState
     do {
       snapshot = try await provider.fetch()
       lastError = nil
+      needsSignIn = false
       clearBackoff()
       consecutiveFailures = 0
       let summary = snapshot.metrics.map { "\($0.id)=\($0.barText)" }.joined(separator: " ")
@@ -240,6 +259,7 @@ import UsageState
       setRateLimited(until: Date().addingTimeInterval(wait))
       holdOff(wait)
       lastError = "Rate limited"
+      needsSignIn = false
       log(
         "HTTP 429 (retry-after \(retryAfter.map { String(Int($0)) } ?? "none"), "
           + "failures \(consecutiveFailures)) — holding off \(Int(wait))s")
@@ -248,6 +268,7 @@ import UsageState
       consecutiveFailures += 1
       setRateLimited(until: nil)
       lastError = UsageError.sessionExpired.errorDescription
+      needsSignIn = true
       // A first rejection is treated as a token the CLI has just rotated, so it is retried soon.
       // One that repeats means the credentials really are stale and only a sign-in fixes it.
       let wait = jittered(consecutiveFailures == 1 ? Self.rejectedTokenRetry : Self.authRetryInterval)
@@ -259,6 +280,7 @@ import UsageState
       consecutiveFailures += 1
       setRateLimited(until: nil)
       lastError = UsageError.notSignedIn.errorDescription
+      needsSignIn = true
       let wait = jittered(Self.authRetryInterval)
       holdOff(wait)
       heldCredentialFingerprint = await provider.credentialFingerprint()
@@ -268,6 +290,7 @@ import UsageState
       consecutiveFailures += 1
       setRateLimited(until: nil)
       lastError = error.localizedDescription
+      needsSignIn = false
       let wait = jittered(min(Self.firstBackoff * pow(2, Double(consecutiveFailures - 1)), Self.maxBackoff))
       holdOff(wait)
       log("error (failures \(consecutiveFailures)): \(error.localizedDescription) " + "— backing off \(Int(wait))s")

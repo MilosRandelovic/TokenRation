@@ -8,12 +8,15 @@ import XCTest
 private struct StubProvider: UsageProviding {
   let provider: Provider
   let outcome: @Sendable () throws -> UsageSnapshot
+  /// Stands in for credentials that are missing or expired without an attempt being made.
+  var credentialsUnusable: Bool = false
   /// Stands in for the credentials on disk; read through a box so a test can swap them
   /// mid-flight the way the CLI rewriting the Keychain does.
   var credentials: Box<String>? = nil
 
   func fetch() async throws -> UsageSnapshot { try outcome() }
   func credentialFingerprint() async -> String? { credentials?.value }
+  func credentialsNeedAttention() async -> Bool { credentialsUnusable }
 }
 
 /// A value a `@Sendable` provider can read and a test can change.
@@ -137,6 +140,77 @@ private func snapshot(_ id: String) -> UsageSnapshot {
 
     prefs.reconcile(knownIDs: [], settled: [])
     XCTAssertEqual(prefs.shownMetricIDs, ["codex:model:retired"])
+  }
+}
+
+// MARK: - Attention state
+
+@MainActor final class NeedsSignInTests: XCTestCase {
+  /// Only a sign-in fixes an expired or missing credential, so that state is tracked separately
+  /// from a throttle — the menu bar asks for attention in one case and stays quiet in the other.
+  func testAuthFailureAsksForAttention() async {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { throw UsageError.sessionExpired }, defaults: makeDefaults(), restoring: nil)
+    await model.refresh(trigger: "test")
+    XCTAssertTrue(model.needsSignIn)
+  }
+
+  func testMissingCredentialsAlsoAskForAttention() async {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { throw UsageError.notSignedIn }, defaults: makeDefaults(), restoring: nil)
+    await model.refresh(trigger: "test")
+    XCTAssertTrue(model.needsSignIn)
+  }
+
+  /// A relaunch restores the backoff but not the reason for it, so the state is asked of the
+  /// credentials rather than waited for — otherwise stale numbers sit under a normal glyph until
+  /// the next attempt, up to a quarter of an hour later.
+  func testCredentialStateIsAskedForNotWaitedFor() async {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex, outcome: { snapshot("codex:window") }, credentialsUnusable: true), defaults: makeDefaults(),
+      restoring: nil)
+    XCTAssertFalse(model.needsSignIn, "nothing has been asked yet")
+
+    await model.refreshCredentialState()
+    XCTAssertTrue(model.needsSignIn, "the credentials answer without an attempt being made")
+  }
+
+  /// And usable credentials clear it, so signing in while held off drops the warning.
+  func testUsableCredentialsClearTheWarning() async {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { throw UsageError.sessionExpired }, defaults: makeDefaults(), restoring: nil)
+    await model.refresh(trigger: "test")
+    XCTAssertTrue(model.needsSignIn)
+
+    await model.refreshCredentialState()
+    XCTAssertFalse(model.needsSignIn, "the stub's credentials are usable, so the warning goes")
+  }
+
+  /// Being throttled is not something the user can act on, so it must not raise the warning.
+  func testRateLimitDoesNotAskForAttention() async {
+    let model = UsageModel(
+      provider: StubProvider(provider: .codex) { throw UsageError.rateLimited(retryAfter: 60) }, defaults: makeDefaults(), restoring: nil)
+    await model.refresh(trigger: "test")
+    XCTAssertFalse(model.needsSignIn, "a throttle is waited out, not signed into")
+  }
+
+  /// And it clears once a reading succeeds, so the warning cannot outlive its cause.
+  func testSuccessClearsTheWarning() async {
+    let defaults = makeDefaults()
+    let failing = Box(true)
+    let model = UsageModel(
+      provider: StubProvider(
+        provider: .codex, outcome: { if failing.value { throw UsageError.sessionExpired } else { return snapshot("codex:window") } }),
+      defaults: defaults, restoring: nil)
+    await model.refresh(trigger: "test")
+    XCTAssertTrue(model.needsSignIn)
+
+    failing.value = false
+    defaults.set(Date(timeIntervalSinceNow: -1), forKey: "nextAttemptAt.codex")
+    defaults.set(Date(timeIntervalSinceNow: -600), forKey: "lastAttemptAt.codex")
+    let resumed = UsageModel(provider: StubProvider(provider: .codex) { snapshot("codex:window") }, defaults: defaults, restoring: nil)
+    await resumed.refresh(trigger: "retry")
+    XCTAssertFalse(resumed.needsSignIn)
   }
 }
 

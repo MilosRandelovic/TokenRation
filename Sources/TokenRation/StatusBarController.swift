@@ -272,7 +272,13 @@ private struct PanelRoot: View {
   /// One metric: SF Symbol on the left, then two rows (big value over small secondary).
   private func segment(id: String) -> NSImage {
     let metric = providers.metric(id: id)
-    let symbol = symbolImage(metric?.symbolName ?? DisplayMetric.symbolName(for: id))
+    // A provider whose credentials have lapsed shows a warning in place of its own glyph:
+    // every one of its rows is stale for the same reason, and unlike a throttle it is
+    // something only you can clear.
+    let provider = metric?.provider ?? Provider.owning(metricID: id)
+    let needsSignIn = provider.map { providers.model(for: $0)?.needsSignIn == true } ?? false
+    let glyph = needsSignIn ? "exclamationmark.triangle.fill" : (metric?.symbolName ?? DisplayMetric.symbolName(for: id))
+    let symbol = symbolImage(glyph)
     let primary = line(metric?.barText ?? "—", size: 11, weight: .semibold, lineHeight: 12)
     let secondary = line(menuSecondary(for: metric), size: 8, weight: .regular, lineHeight: 9)
 
@@ -324,11 +330,17 @@ private struct PanelRoot: View {
   /// Secondary line: reset countdown for windows, or the percentage for metrics that have no
   /// reset at all, such as spend.
   ///
-  /// A window whose reset has already passed gets neither: the percentage is already the line
-  /// above, so falling back to it would print the same value twice.
+  /// Once a reset has passed there is no live countdown left, so the line holds the time that was
+  /// remaining when the reading was taken. That is frozen rather than wrong: it sits beside a
+  /// percentage from the same stale reading, and both describe that moment. Falling back to the
+  /// percentage instead would print the line above it twice.
   private func menuSecondary(for metric: DisplayMetric?) -> String {
     guard let metric else { return "" }
-    if let resetsAt = metric.resetsAt { return resetsAt.timeIntervalSinceNow > 0 ? ResetText.short(until: resetsAt) : "" }
+    if let resetsAt = metric.resetsAt {
+      if resetsAt.timeIntervalSinceNow > 0 { return ResetText.short(until: resetsAt) }
+      guard let taken = providers.model(for: metric.provider)?.snapshot.updatedAt, resetsAt > taken else { return "" }
+      return ResetText.short(until: resetsAt, from: taken)
+    }
     if let fraction = metric.fraction { return "\(Int((fraction * 100).rounded()))%" }
     return ""
   }
