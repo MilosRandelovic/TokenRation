@@ -48,14 +48,14 @@ A native macOS **menu-bar app** (SwiftUI + AppKit, Swift 6, macOS 14+) that show
 
 ```sh
 make build
-make test                       # 22 tests: pinning, reconciliation, backoff, timeouts, freshness
+make test                       # pinning, reconciliation, backoff, timeouts, freshness
 make format                     # CI fails on unformatted sources
 make app                        # TokenRation.app (ad-hoc, local)
 open TokenRation.app            # launch it detached — see below
 make release                    # notarized (Developer ID) + updates the Homebrew cask
 ```
 
-Formatting is enforced by `swift format` against `.swift-format` (4-space indent). Wire types map snake_case JSON via `CodingKeys` rather than snake_case property names, so the `AlwaysUseLowerCamelCase` rule stays on.
+Formatting is enforced by `swift format` against `.swift-format` (2-space indent, stated explicitly there rather than left to the tool default). Wire types map snake_case JSON via `CodingKeys` rather than snake_case property names, so the `AlwaysUseLowerCamelCase` rule stays on.
 
 **Launch the bundle with `open`, not the executable inside it.** Running `TokenRation.app/Contents/MacOS/TokenRation &` makes the app a child of the invoking shell, so it gets SIGHUP and dies when that shell exits — silently, with no crash report and no `app terminating` log line, which looks exactly like a crash. `open` hands it to launchd (PPID 1) so it survives. Also note `build-app.sh` does `rm -rf` on the bundle, so rebuilding while an instance runs can invalidate the running code signature; quit it first.
 

@@ -164,30 +164,6 @@ func snapshotPayload(_ state: UsageState) -> [String: Any] {
   ]
 }
 
-func humanSummary(_ state: UsageState) -> String {
-  let now = Date()
-  var lines: [String] = []
-  for provider in state.providers {
-    let parts = provider.metrics.map { metric -> String in
-      let reset = metric.resetsAt.map { " (resets in \(shortDuration($0.timeIntervalSinceNow)))" } ?? ""
-      return "\(metric.title) \(metric.value)\(reset)"
-    }
-    let detail = parts.isEmpty ? provider.status : parts.joined(separator: ", ")
-    // Age is reported per provider — one can be minutes old while the other just refreshed.
-    let age = provider.readingAge(now: now).map { " — reading \(Int($0))s old" } ?? " — no reading yet"
-    lines.append("\(provider.displayName): \(detail)\(age)")
-  }
-  return lines.joined(separator: "\n")
-}
-
-func shortDuration(_ seconds: TimeInterval) -> String {
-  let total = max(Int(seconds), 0)
-  let days = total / 86400, hours = (total % 86400) / 3600, minutes = (total % 3600) / 60
-  if days > 0 { return "\(days)d \(hours)h" }
-  if hours > 0 { return "\(hours)h \(minutes)m" }
-  return "\(minutes)m"
-}
-
 // MARK: - Tools
 
 let tools: [[String: Any]] = [
@@ -203,7 +179,7 @@ let tools: [[String: Any]] = [
 
 func callGetUsage() -> [String: Any] {
   guard let state = stateOrNil() else { return missingStateResult() }
-  return toolResult(summary: humanSummary(state), payload: snapshotPayload(state))
+  return toolResult(summary: UsageSummary.text(for: state), payload: snapshotPayload(state))
 }
 
 // MARK: - Serve
