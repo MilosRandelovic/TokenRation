@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.2]
+
+- The bundled MCP server leads `get_usage`'s summary line with a provider's status and with a
+  stale reading, ahead of the numbers they qualify. Callers are told to report that line rather
+  than the payload beside it, so an expired session used to reach them as percentages that read
+  as current. A reading's age is also written as `4h 0m` rather than `14400s`. The structured
+  payload is unchanged.
+
 ## [1.0.1]
 
 - A provider whose credentials have lapsed shows a warning triangle in the menu bar in place of
