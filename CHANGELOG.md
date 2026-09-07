@@ -2,11 +2,13 @@
 
 ## [1.0.2]
 
-- The bundled MCP server leads `get_usage`'s summary line with a provider's status and with a
-  stale reading, ahead of the numbers they qualify. Callers are told to report that line rather
-  than the payload beside it, so an expired session used to reach them as percentages that read
-  as current. A reading's age is also written as `4h 0m` rather than `14400s`. The structured
-  payload is unchanged.
+- The bundled MCP server puts any warning at the front of `get_usage`'s summary line, bracketed,
+  ahead of the numbers it qualifies:
+  `Claude: [⚠ Session expired — open Claude Code to refresh; stale] Session (5-hour) 46% (resets in 3h 29m) · read 4h 0m ago`
+  Callers are told to report that line rather than the payload beside it, so an expired session
+  used to reach them as percentages that read as current. A status is named in words rather than
+  as the wire token it arrived as, a provider that has never read is not also called stale, and a
+  reading's age is written as `4h 0m` rather than `14400s`. The structured payload is unchanged.
 
 ## [1.0.1]
 

@@ -863,7 +863,7 @@ final class UsageSummaryTests: XCTestCase {
     let now = Date()
     let line = UsageSummary.text(for: state(status: "ok", error: nil, ageSeconds: 30, now: now), now: now)
 
-    XCTAssertEqual(line, "Claude: Session (5-hour) 46% (resets in 1h 0m) — reading 30s old")
+    XCTAssertEqual(line, "Claude: Session (5-hour) 46% (resets in 1h 0m) · read 30s ago")
   }
 
   /// The defect this guards: the status used to be rendered only when a provider had no metrics,
@@ -884,15 +884,25 @@ final class UsageSummaryTests: XCTestCase {
     let now = Date()
     let line = UsageSummary.text(for: state(status: "ok", error: nil, ageSeconds: 3600, now: now), now: now)
 
-    XCTAssertTrue(line.contains("⚠ stale reading"), "an hour-old reading under a 5-minute poll is stale: \(line)")
-    XCTAssertTrue(line.contains("reading 1h 0m old"), "a stale age reported in seconds is unreadable: \(line)")
+    XCTAssertTrue(line.contains("[⚠ stale]"), "an hour-old reading under a 5-minute poll is stale: \(line)")
+    XCTAssertTrue(line.contains("read 1h 0m ago"), "a stale age reported in seconds is unreadable: \(line)")
   }
 
-  func testRateLimitedStatusIsNamedEvenWithoutAnErrorMessage() {
+  /// The status is a wire token. It has to reach the line as words, not as `rate_limited`.
+  func testWireStatusIsNamedInWordsWithoutAnErrorMessage() {
     let now = Date()
     let line = UsageSummary.text(for: state(status: "rate_limited", error: nil, ageSeconds: 30, now: now), now: now)
 
-    XCTAssertTrue(line.contains("⚠ rate_limited"), "a status with no message still has to appear: \(line)")
+    XCTAssertTrue(line.contains("[⚠ rate limited]"), "a status with no message still has to appear: \(line)")
+    XCTAssertFalse(line.contains("rate_limited"), "the wire token must not be printed as-is: \(line)")
+  }
+
+  /// `error` names no fault on its own, so the message it arrived with is what gets printed.
+  func testErrorStatusIsNotPrintedAlongsideItsOwnMessage() {
+    let now = Date()
+    let line = UsageSummary.text(for: state(status: "error", error: "Not signed in", ageSeconds: 30, now: now), now: now)
+
+    XCTAssertTrue(line.contains("[⚠ Not signed in]"), "the message alone should fill the warning: \(line)")
   }
 
   func testProviderWithNoReadingSaysSo() {
@@ -901,6 +911,6 @@ final class UsageSummaryTests: XCTestCase {
       provider: "codex", displayName: "Codex", status: "loading", error: nil, updatedAt: nil, rateLimitedUntil: nil, metrics: [])
     let line = UsageSummary.text(for: UsageState(writtenAt: now, pollIntervalSeconds: 300, providers: [provider]), now: now)
 
-    XCTAssertEqual(line, "Codex: ⚠ loading · stale reading — no reading yet")
+    XCTAssertEqual(line, "Codex: [⚠ no reading yet]", "a provider that has never read is starting up, not stale")
   }
 }

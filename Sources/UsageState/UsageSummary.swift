@@ -3,37 +3,57 @@ import Foundation
 /// The human-readable rendering of a published reading, so the text a caller quotes and the JSON
 /// it can parse describe the same state.
 public enum UsageSummary {
-  /// One line per provider: any warning first, then the metrics, then the reading's age.
+  /// One line per provider: `Claude: [⚠ stale] Session (5-hour) 46% (resets in 3h 29m) · read 1h 0m ago`.
   ///
-  /// The warning leads deliberately. Callers are told to report this summary rather than the
-  /// payload beside it, so a status placed after the percentages is a status that gets dropped —
-  /// which is how an expired session came to be reported as hours-old numbers that read as
-  /// current. The last known metrics still follow, because they are usually what was wanted.
+  /// Any warning is bracketed at the front, ahead of the numbers it qualifies. Callers are told to
+  /// report this summary rather than the payload beside it, so a status placed after the
+  /// percentages is a status that gets dropped — which is how an expired session came to be
+  /// reported as hours-old numbers that read as current. The brackets earn their place: an error
+  /// message carries its own punctuation, so the warning needs an extent that does not depend on
+  /// what is inside it.
   public static func text(for state: UsageState, now: Date = Date()) -> String {
     state.providers.map { line(for: $0, pollIntervalSeconds: state.pollIntervalSeconds, now: now) }.joined(separator: "\n")
   }
 
   private static func line(for provider: ProviderUsage, pollIntervalSeconds: Int, now: Date) -> String {
+    let age = provider.readingAge(now: now)
     var warnings: [String] = []
-    if provider.status != "ok" { warnings.append(provider.error.map { "\(provider.status): \($0)" } ?? provider.status) }
-    if provider.isStale(pollIntervalSeconds: pollIntervalSeconds, now: now) { warnings.append("stale reading") }
+    if let problem = problem(for: provider) { warnings.append(problem) }
+    // Never both: a provider that has no reading at all is starting up, not holding a stale one.
+    if age == nil {
+      warnings.append("no reading yet")
+    } else if provider.isStale(pollIntervalSeconds: pollIntervalSeconds, now: now) {
+      warnings.append("stale")
+    }
 
-    var parts: [String] = []
-    if !warnings.isEmpty { parts.append("⚠ " + warnings.joined(separator: " · ")) }
+    var line = "\(provider.displayName):"
+    if !warnings.isEmpty { line += " [⚠ \(warnings.joined(separator: "; "))]" }
     let metrics = provider.metrics.map { metric -> String in
       let reset = metric.resetsAt.map { " (resets in \(shortDuration($0.timeIntervalSince(now))))" } ?? ""
       return "\(metric.title) \(metric.value)\(reset)"
     }
-    if metrics.isEmpty {
-      // A provider with nothing to show and nothing wrong still has to say something.
-      if warnings.isEmpty { parts.append(provider.status) }
-    } else {
-      parts.append(metrics.joined(separator: ", "))
+    if !metrics.isEmpty {
+      line += " \(metrics.joined(separator: ", "))"
+    } else if warnings.isEmpty {
+      // Nothing to show and nothing wrong still has to say something.
+      line += " \(provider.status)"
     }
-
     // Age is reported per provider — one can be hours old while the other just refreshed.
-    let age = provider.readingAge(now: now).map { "reading \(ageText($0)) old" } ?? "no reading yet"
-    return "\(provider.displayName): \(parts.joined(separator: " · ")) — \(age)"
+    if let age { line += " · read \(ageText(age)) ago" }
+    return line
+  }
+
+  /// What is wrong, in words. The status is a wire token (`rate_limited`), so it is never printed
+  /// as-is; an error's own message says more than the token it arrived with.
+  private static func problem(for provider: ProviderUsage) -> String? {
+    let message = provider.error.flatMap { $0.isEmpty ? nil : $0 }
+    switch provider.status {
+    case "ok": return message
+    case "loading": return nil
+    case "error": return message ?? "unavailable"
+    case "rate_limited": return "rate limited"
+    default: return provider.status.replacingOccurrences(of: "_", with: " ")
+    }
   }
 
   /// Seconds while a reading is fresh enough to think of in seconds, coarser once it is not.
